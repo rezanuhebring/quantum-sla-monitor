@@ -1,0 +1,19 @@
+# Ignore actual configuration files with sensitive data
+central_server_package/sla_config.env
+linux_agent_package/agent_config.env
+windows_agent_package/agent_config.ps1
+
+# Ignore local SQLite databases if they end up in the project dir by mistake
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Log files
+*.log
+
+# IDE/Editor specific files
+.vscode/
+.idea/
+*.swp
+*~

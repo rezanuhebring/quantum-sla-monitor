@@ -1,0 +1,43 @@
+<?php
+// /var/www/html/sla_status/api/get_profile_config.php
+$db_file = '/opt/sla_monitor/central_sla_data.sqlite';
+$log_file_api = '/var/log/sla_api.log'; 
+function api_log_get_profile($message) { file_put_contents($GLOBALS['log_file_api'], date('[Y-m-d H:i:s T] ') . '[GetProfileCfg] ' . $message . PHP_EOL, FILE_APPEND); }
+
+header("Content-Type: application/json");
+header('Cache-Control: no-cache, must-revalidate, no-store, max-age=0');
+
+// TODO: Implement robust API Key Authentication here
+
+$agent_identifier = $_GET['agent_id'] ?? null;
+if (empty($agent_identifier)) { http_response_code(400); api_log_get_profile("Missing agent_id."); echo json_encode(['error' => 'Missing agent_id parameter.']); exit;}
+$agent_identifier = filter_var($agent_identifier, FILTER_SANITIZE_STRING);
+api_log_get_profile("Request for profile config from agent: " . $agent_identifier);
+
+try {
+    if (!file_exists($db_file)) { throw new Exception("Database file not found."); }
+    if (!is_readable($db_file)) { $effUser = function_exists('posix_getpwuid') && function_exists('posix_geteuid') ? posix_getpwuid(posix_geteuid())['name'] : get_current_user(); throw new Exception("Database not readable by web server (user: " . $effUser . ").");}
+    $db = new SQLite3($db_file, SQLITE3_OPEN_READONLY); if (!$db) { throw new Exception("Could not connect to DB: " . SQLite3::lastErrorMsg()); }
+    $db->exec("PRAGMA journal_mode=WAL;");
+
+    // Return all stored fields for this agent profile
+    $stmt = $db->prepare("SELECT * FROM isp_profiles WHERE agent_identifier = :agent_id LIMIT 1");
+    $stmt->bindValue(':agent_id', $agent_identifier, SQLITE3_TEXT);
+    $result = $stmt->execute(); $profile_config = $result->fetchArray(SQLITE3_ASSOC); $stmt->close(); $db->close();
+
+    if ($profile_config) {
+        // Convert numeric strings from DB to actual numbers for JSON consistency
+        foreach ($profile_config as $key => &$value) {
+            if (is_numeric($value) && !in_array($key, ['agent_name', 'agent_identifier', 'agent_type', 'network_interface_to_monitor', 'teams_webhook_url', 'alert_hostname_override', 'notes', 'last_heard_from', 'last_reported_hostname', 'last_reported_source_ip'])) { 
+                if (strpos($value, '.') !== false) { $value = (float)$value;} else { $value = (int)$value;}
+            } elseif ($value === "NULL" || is_null($value)) {
+                $value = null; 
+            }
+        } unset($value);
+        api_log_get_profile("Served profile config for agent: " . $agent_identifier); echo json_encode($profile_config);
+    } else { 
+        http_response_code(404); api_log_get_profile("Profile config not found for agent: " . $agent_identifier); 
+        echo json_encode(['error' => "Profile not found for agent_id '{$agent_identifier}'. Agent will be auto-created on next data submission with default thresholds."]); 
+    }
+} catch (Exception $e) { api_log_get_profile("Error for {$agent_identifier}: " . $e->getMessage()); http_response_code(500); echo json_encode(['error' => 'Server error: ' . $e->getMessage()]); }
+?>
