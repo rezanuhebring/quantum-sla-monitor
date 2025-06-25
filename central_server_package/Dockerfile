@@ -29,7 +29,6 @@ RUN apt-get update -yqq && \
 RUN echo "----> Layer 2: SQLite & Libzip dev libs OK"
 
 # Layer 3: Install other CLI tools
-# (Content from previous Dockerfile - curl, jq, bc, git, iputils-ping, dnsutils)
 RUN apt-get update -yqq && \
     apt-get install -y --no-install-recommends \
         curl \
@@ -42,7 +41,6 @@ RUN apt-get update -yqq && \
 RUN echo "----> Layer 3: Other CLI tools OK"
 
 # Layer 4: Install Speedtest CLI (Ookla official)
-# (Content from previous Dockerfile)
 RUN echo "----> Attempting to install Ookla Speedtest CLI..." && \
     apt-get update -yqq && apt-get install -y --no-install-recommends curl ca-certificates gnupg; \
     curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash || \
@@ -53,25 +51,27 @@ RUN echo "----> Attempting to install Ookla Speedtest CLI..." && \
     (echo "ERROR: Failed to install 'speedtest' package via apt. Output: $apt_output" && exit 1); \
     echo "----> Layer 4: Speedtest installation attempted."
 
-
 # Layer 5: Install PHP extensions one by one
+# Extract PHP source first, which might be needed for some bundled extensions if config.m4 is missing
+RUN docker-php-source extract
+RUN echo "----> PHP source extracted."
+
 RUN echo "----> Attempting to install PHP extension: pdo..."
 RUN docker-php-ext-install pdo || (echo "ERROR: Failed to install PHP extension pdo." && exit 1)
 RUN echo "----> PHP pdo OK"
 
 RUN echo "----> Attempting to install PHP extension: pdo_sqlite..."
+# pdo_sqlite depends on pdo and libsqlite3-dev
 RUN docker-php-ext-install pdo_sqlite || (echo "ERROR: Failed to install PHP extension pdo_sqlite." && exit 1)
 RUN echo "----> PHP pdo_sqlite OK"
 
 RUN echo "----> Attempting to install PHP extension: sqlite3..."
-# The sqlite3 extension source is typically in /usr/src/php/ext/sqlite3/
-# Ensure its dependencies (libsqlite3-dev) are met from Layer 2.
-# Sometimes, just running docker-php-ext-install is enough.
+# sqlite3 depends on libsqlite3-dev
 RUN docker-php-ext-install sqlite3 || (echo "ERROR: Failed to install PHP extension sqlite3." && exit 1)
 RUN echo "----> PHP sqlite3 OK"
     
 RUN echo "----> Attempting to install PHP extension: zip..."
-# For zip, ensure libzip-dev and zlib1g-dev are installed first (done in Layer 2)
+# zip depends on libzip-dev and zlib1g-dev
 RUN docker-php-ext-configure zip --with-libzip || \
     (echo "INFO: docker-php-ext-configure zip --with-libzip failed or not needed, trying without --with-libzip..." && \
      docker-php-ext-configure zip || \
@@ -81,9 +81,12 @@ RUN docker-php-ext-install zip || (echo "ERROR: Failed to install PHP extension 
 RUN echo "----> PHP zip OK"
     
 RUN echo "----> Layer 5: All specified PHP extensions attempted."
-RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* # Final cleanup
+# Delete PHP source after extensions are built to save space
+RUN docker-php-source delete
+RUN echo "----> PHP source deleted."
 
-# ... (rest of the Dockerfile: a2enmod, WORKDIR, COPY, Apache config, EXPOSE, HEALTHCHECK) ...
+RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* # Final cleanup for this block
+
 # Enable Apache modules
 RUN a2enmod rewrite headers ssl expires
 
