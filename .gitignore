@@ -1,16 +1,19 @@
-# Ignore actual configuration files with sensitive data
-central_server_package/sla_config.env
+# Config files with secrets/specifics - commit templates instead
+central_server_package/app/sla_config.env
 linux_agent_package/agent_config.env
 windows_agent_package/agent_config.ps1
 
-# Ignore local SQLite databases if they end up in the project dir by mistake
+# SQLite databases and journals on HOST (if setup script is run in project root by mistake)
 *.sqlite
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
 
-# Log files
+# Log files (if generated in project root by mistake)
 *.log
+
+# Docker build context temp files (if any)
+central_server_package/app_build_temp/
 
 # IDE/Editor specific files
 .vscode/
