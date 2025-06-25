@@ -1,11 +1,9 @@
 # Use an official PHP image with Apache
-FROM php:8.2-apache # Or your preferred PHP version
+FROM php:8.2-apache
 
-# Set DEBIAN_FRONTEND to noninteractive to avoid prompts during apt-get
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Layer 1: Update and install basic utilities often needed for scripts
-# These are generally good to have for troubleshooting within the container as well.
+# Layer 1: System update and core build dependencies
 RUN apt-get update -yqq && \
     apt-get install -y --no-install-recommends \
         apt-utils \
@@ -14,27 +12,23 @@ RUN apt-get update -yqq && \
         procps \
         nano \
         less \
+        build-essential \
+        autoconf \
+        pkg-config \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-RUN echo "----> Layer 1: Basic utils OK"
+RUN echo "----> Layer 1: Basic utils & build tools OK"
 
-# Layer 2: Install SQLite and related dev packages (needed for pdo_sqlite, sqlite3 PHP extensions)
+# Layer 2: Install SQLite and Libzip development libraries
 RUN apt-get update -yqq && \
     apt-get install -y --no-install-recommends \
         sqlite3 \
         libsqlite3-dev \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-RUN echo "----> Layer 2: SQLite OK"
-
-# Layer 3: Install Zip and related dev packages (needed for zip PHP extension)
-RUN apt-get update -yqq && \
-    apt-get install -y --no-install-recommends \
         libzip-dev \
-        zip \
-        unzip \
+        zlib1g-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-RUN echo "----> Layer 3: Zip utils OK"
+RUN echo "----> Layer 2: SQLite & Libzip dev libs OK"
 
-# Layer 4: Install other CLI tools needed by monitor scripts or potentially by users
+# Layer 3: Install other CLI tools
 RUN apt-get update -yqq && \
     apt-get install -y --no-install-recommends \
         curl \
@@ -44,22 +38,22 @@ RUN apt-get update -yqq && \
         iputils-ping \
         dnsutils \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-RUN echo "----> Layer 4: Other CLI tools OK"
+RUN echo "----> Layer 3: Other CLI tools OK"
 
-# Layer 5: Install Speedtest CLI (Ookla official)
+# Layer 4: Install Speedtest CLI (Ookla official)
 RUN echo "----> Attempting to install Ookla Speedtest CLI..."
 RUN apt-get update -yqq && \
-    apt-get install -y --no-install-recommends curl ca-certificates gnupg # Ensure these are present for the script
+    apt-get install -y --no-install-recommends curl ca-certificates gnupg
 RUN curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash || \
     (echo "ERROR: Ookla script.deb.sh failed." && exit 1)
 RUN echo "----> Ookla repo script executed."
 RUN apt-get update -yqq && \
     apt_output=$(apt-get install -y --no-install-recommends speedtest 2>&1) || \
     (echo "ERROR: Failed to install 'speedtest' package via apt. Output: $apt_output" && \
-     echo "INFO: Speedtest might not be available from this repo for the base image's OS version." && exit 1)
-RUN echo "----> Layer 5: Speedtest installation attempted."
+     echo "INFO: Speedtest might not be available for the base image's OS version." && exit 1) # Let's make this fatal for now
+RUN echo "----> Layer 4: Speedtest installation attempted."
 
-# Layer 6: Install PHP extensions one by one for debugging
+# Layer 5: Install PHP extensions one by one
 RUN echo "----> Attempting to install PHP extension: pdo..."
 RUN docker-php-ext-install pdo || (echo "ERROR: Failed to install PHP extension pdo." && exit 1)
 RUN echo "----> PHP pdo OK"
@@ -73,30 +67,30 @@ RUN docker-php-ext-install sqlite3 || (echo "ERROR: Failed to install PHP extens
 RUN echo "----> PHP sqlite3 OK"
     
 RUN echo "----> Attempting to install PHP extension: zip..."
-# Some PHP versions/images might not need 'configure' for zip, or it might fail if libzip-dev isn't perfect.
-# `|| true` allows the build to continue if configure fails but install might still work.
-RUN docker-php-ext-configure zip --with-libzip || (echo "INFO: docker-php-ext-configure zip with explicit path failed or not needed, trying default..." && docker-php-ext-configure zip || true)
+# For zip, ensure libzip-dev and zlib1g-dev are installed first (done in Layer 2)
+# Try configure first, then install. The || true for configure is if it's not strictly needed by some php versions.
+RUN docker-php-ext-configure zip --with-libzip || \
+    (echo "INFO: docker-php-ext-configure zip --with-libzip failed or not needed, trying without --with-libzip..." && \
+     docker-php-ext-configure zip || \
+     (echo "INFO: docker-php-ext-configure zip also failed without --with-libzip, proceeding to install directly..." && true) \
+    )
 RUN docker-php-ext-install zip || (echo "ERROR: Failed to install PHP extension zip." && exit 1)
 RUN echo "----> PHP zip OK"
     
-RUN echo "----> Layer 6: All specified PHP extensions attempted."
-RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* # Final cleanup for this block
+RUN echo "----> Layer 5: All specified PHP extensions attempted."
+RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* # Final cleanup
 
 # Enable Apache modules
 RUN a2enmod rewrite headers ssl expires
 
-# Set up web root and copy application files from 'app' subdirectory of build context
+# Set up web root and copy application files
 WORKDIR /app_build_temp 
-# 'app/' is relative to the Dockerfile's location (the build context)
 COPY ./app/ /app_build_temp/
-
 RUN mkdir -p /var/www/html/sla_status && cp -R /app_build_temp/* /var/www/html/sla_status/ && \
     rm -rf /app_build_temp && \
     chown -R www-data:www-data /var/www/html/sla_status && \
     find /var/www/html/sla_status -type d -exec chmod 755 {} \; && \
     find /var/www/html/sla_status -type f -exec chmod 644 {} \;
-
-# Configure Apache to serve from /var/www/html/sla_status 
 RUN echo "<VirtualHost *:80>\n\
     ServerAdmin webmaster@localhost\n\
     DocumentRoot /var/www/html/sla_status\n\
@@ -111,8 +105,5 @@ RUN echo "<VirtualHost *:80>\n\
 
 EXPOSE 80
 EXPOSE 443
-
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
   CMD curl -f http://localhost/index.html || exit 1
-
-# The default CMD for php:apache image is to start apache in foreground
