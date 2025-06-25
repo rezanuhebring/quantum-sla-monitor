@@ -48,11 +48,13 @@ RUN echo "----> Attempting to install Ookla Speedtest CLI..." && \
     echo "----> Ookla repo script executed."; \
     apt-get update -yqq && \
     apt_output=$(apt-get install -y --no-install-recommends speedtest 2>&1) || \
-    (echo "ERROR: Failed to install 'speedtest' package via apt. Output: $apt_output" && exit 1); \
-    echo "----> Layer 4: Speedtest installation attempted."
+    (echo "ERROR: Failed to install 'speedtest' package via apt. Output: $apt_output" && \
+     echo "INFO: Speedtest might not be available for the base image's OS version (Debian variant). Consider manual .deb download or different speedtest client if this fails." && exit 1); \
+RUN echo "----> Layer 4: Speedtest installation attempted."
+
 
 # Layer 5: Install PHP extensions one by one
-# Extract PHP source first, which might be needed for some bundled extensions if config.m4 is missing
+# Ensure PHP source code is available for bundled extensions
 RUN docker-php-source extract
 RUN echo "----> PHP source extracted."
 
@@ -61,21 +63,22 @@ RUN docker-php-ext-install pdo || (echo "ERROR: Failed to install PHP extension 
 RUN echo "----> PHP pdo OK"
 
 RUN echo "----> Attempting to install PHP extension: pdo_sqlite..."
-# pdo_sqlite depends on pdo and libsqlite3-dev
+# pdo_sqlite depends on pdo and libsqlite3-dev (installed in Layer 2)
 RUN docker-php-ext-install pdo_sqlite || (echo "ERROR: Failed to install PHP extension pdo_sqlite." && exit 1)
 RUN echo "----> PHP pdo_sqlite OK"
 
 RUN echo "----> Attempting to install PHP extension: sqlite3..."
-# sqlite3 depends on libsqlite3-dev
+# sqlite3 depends on libsqlite3-dev (installed in Layer 2)
 RUN docker-php-ext-install sqlite3 || (echo "ERROR: Failed to install PHP extension sqlite3." && exit 1)
 RUN echo "----> PHP sqlite3 OK"
     
 RUN echo "----> Attempting to install PHP extension: zip..."
-# zip depends on libzip-dev and zlib1g-dev
+# zip depends on libzip-dev and zlib1g-dev (installed in Layer 2)
+# Try configure with specific libzip path first, then without, then just install.
 RUN docker-php-ext-configure zip --with-libzip || \
-    (echo "INFO: docker-php-ext-configure zip --with-libzip failed or not needed, trying without --with-libzip..." && \
+    (echo "INFO: docker-php-ext-configure zip --with-libzip failed, trying without..." && \
      docker-php-ext-configure zip || \
-     (echo "INFO: docker-php-ext-configure zip also failed without --with-libzip, proceeding to install directly..." && true) \
+     (echo "INFO: docker-php-ext-configure zip also failed without --with-libzip, attempting install directly..." && true) \
     )
 RUN docker-php-ext-install zip || (echo "ERROR: Failed to install PHP extension zip." && exit 1)
 RUN echo "----> PHP zip OK"
@@ -85,7 +88,8 @@ RUN echo "----> Layer 5: All specified PHP extensions attempted."
 RUN docker-php-source delete
 RUN echo "----> PHP source deleted."
 
-RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* # Final cleanup for this block
+# Final cleanup of apt cache
+RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Enable Apache modules
 RUN a2enmod rewrite headers ssl expires
