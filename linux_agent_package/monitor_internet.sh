@@ -1,6 +1,6 @@
 #!/bin/bash
 # SLA Monitor Agent Script
-# Fetches profile from central server (optional), runs tests, and submits metrics.
+# Final version with robust speedtest parsing and configuration validation.
 
 # --- Source the local agent configuration file ---
 AGENT_CONFIG_FILE="/opt/sla_monitor/agent_config.env"
@@ -49,10 +49,10 @@ fi
 SPEEDTEST_COMMAND_PATH=""; SPEEDTEST_ARGS=""
 if command -v speedtest &>/dev/null; then
     SPEEDTEST_COMMAND_PATH=$(command -v speedtest)
-    SPEEDTEST_ARGS="--json"
+    SPEEDTEST_ARGS="--format=json --accept-license --accept-gdpr"
 elif command -v speedtest-cli &>/dev/null; then
     SPEEDTEST_COMMAND_PATH=$(command -v speedtest-cli)
-    SPEEDTEST_ARGS="--json"
+    SPEEDTEST_ARGS="--json --accept-license --accept-gdpr"
 fi
 
 # --- Main Logic ---
@@ -129,7 +129,6 @@ if [ "$ENABLE_HTTP" = true ]; then
 fi
 
 # --- SPEEDTEST ---
-# *** ROBUST SPEEDTEST LOGIC ***
 if [ "$ENABLE_SPEEDTEST" = true ]; then
     if [ -n "$SPEEDTEST_COMMAND_PATH" ]; then
         log_message "Performing speedtest with '$SPEEDTEST_COMMAND_PATH'..."
@@ -148,7 +147,7 @@ if [ "$ENABLE_SPEEDTEST" = true ]; then
         speedtest_json_output=$(timeout 120s $SPEEDTEST_COMMAND_PATH $SPEEDTEST_ARGS $speedtest_interface_arg)
         
         if [ $? -eq 0 ] && echo "$speedtest_json_output" | jq -e . > /dev/null 2>&1; then
-            # Check if it's Ookla format (nested)
+            # Robustly check for Ookla format (nested) first
             if echo "$speedtest_json_output" | jq -e '.download.bandwidth' > /dev/null 2>&1; then
                 log_message "Parsing speedtest output as Ookla JSON format."
                 dl_bytes_per_sec=$(echo "$speedtest_json_output" | jq -r '.download.bandwidth // 0')
@@ -158,7 +157,7 @@ if [ "$ENABLE_SPEEDTEST" = true ]; then
                 results_map[st_ping]=$(echo "$speedtest_json_output" | jq -r '.ping.latency // "null"')
                 results_map[st_jitter]=$(echo "$speedtest_json_output" | jq -r '.ping.jitter // "null"')
                 results_map[st_status]="COMPLETED"
-            # Check if it's community format (flat)
+            # Fallback to check for community format (flat)
             elif echo "$speedtest_json_output" | jq -e '.download' > /dev/null 2>&1; then
                 log_message "Parsing speedtest output as community speedtest-cli JSON format."
                 st_dl_bps=$(echo "$speedtest_json_output" | jq -r '.download // 0');
