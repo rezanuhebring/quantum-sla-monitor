@@ -12,12 +12,11 @@ SLA_CONFIG_SOURCE_NAME="sla_config.env"
 SLA_CONFIG_HOST_FINAL_NAME="sla_config.env"
 SQLITE_DB_FILE_NAME="central_sla_data.sqlite"
 SQLITE_DB_FILE_HOST_PATH="${HOST_OPT_SLA_MONITOR_DIR}/${SQLITE_DB_FILE_NAME}"
-SQLITE_DB_OWNER="root"
-SQLITE_DB_GROUP_PHP_READ="www-data"
 DOCKER_COMPOSE_FILE_NAME="docker-compose.yml"
 DOCKERFILE_NAME="Dockerfile"
 APACHE_CONFIG_DIR="docker/apache"
 APACHE_CONFIG_FILE="000-default.conf"
+ENV_FILE_NAME=".env"
 
 # --- Helper Functions ---
 print_info() { echo -e "\033[0;32m[INFO]\033[0m $1"; }
@@ -31,16 +30,15 @@ if [ "$(id -u)" -ne 0 ]; then print_error "This script must be run with sudo: su
 # 0. Check if source application files exist
 print_info "Checking for required application source files in ./${APP_SOURCE_SUBDIR}/ ..."
 if [ ! -d "./${APP_SOURCE_SUBDIR}" ]; then print_error "Source directory './${APP_SOURCE_SUBDIR}/' not found. This script must be run from 'central_server_package/'."; exit 1; fi
-# Add other file checks as needed...
 
 # 1. Install System Dependencies (Docker, Compose, and SQLite3 client)
 print_info "Checking system dependencies..."
 sudo apt-get update -y || { print_error "Apt update failed."; exit 1; }
 
 # Install Docker
-if ! command -v docker &> /dev/null; then 
-    print_info "Installing Docker..."; 
-    sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common || { print_error "Docker prereqs failed"; exit 1; }
+if ! command -v docker &> /dev/null; then
+    print_info "Installing Docker...";
+    sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common jq || { print_error "Docker prereqs failed"; exit 1; }
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
     sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" -y
     sudo apt-get update -y
@@ -48,22 +46,22 @@ if ! command -v docker &> /dev/null; then
     sudo systemctl start docker
     sudo systemctl enable docker
     print_info "Docker installed."
-else 
+else
     print_info "Docker is already installed."
 fi
 
 # Install Docker Compose
-if ! command -v docker-compose &> /dev/null; then 
-    print_info "Installing Docker Compose..."; 
+if ! command -v docker-compose &> /dev/null; then
+    print_info "Installing Docker Compose...";
     LATEST_COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | jq -r .tag_name)
-    if [ -z "$LATEST_COMPOSE_VERSION" ]; then 
-        LATEST_COMPOSE_VERSION="v2.24.6"; 
+    if [ -z "$LATEST_COMPOSE_VERSION" ]; then
+        LATEST_COMPOSE_VERSION="v2.24.6";
         print_warn "Could not fetch latest Docker Compose version, using $LATEST_COMPOSE_VERSION"
     fi
     sudo curl -L "https://github.com/docker/compose/releases/download/${LATEST_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || { print_error "Docker Compose download failed"; exit 1; }
     sudo chmod +x /usr/local/bin/docker-compose || { print_error "Docker Compose chmod failed"; exit 1; }
     print_info "Docker Compose ${LATEST_COMPOSE_VERSION} installed."
-else 
+else
     print_info "Docker Compose is already installed: $(docker-compose --version)"
 fi
 
@@ -79,15 +77,11 @@ fi
 print_info "Creating host directories for Docker volumes under ${HOST_DATA_ROOT}..."
 sudo mkdir -p "${HOST_OPT_SLA_MONITOR_DIR}" "${HOST_API_LOGS_DIR}" "${HOST_APACHE_LOGS_DIR}"
 sudo touch "${HOST_API_LOGS_DIR}/sla_api.log"
-# Permissions will be set later, after files are created/copied.
 
 # 3. Create Dockerfile and supporting Apache configuration
 print_info "Creating Docker build files..."
 mkdir -p ./${APACHE_CONFIG_DIR}
-print_info "Created directory for Apache config: ./${APACHE_CONFIG_DIR}"
-
-# The here-document block for Apache config
-tee "./${APACHE_CONFIG_DIR}/${APACHE_CONFIG_FILE}" > /dev/null <<'EOF_APACHE_CONF'
+tee "./${APACHE_CONFIG_DIR}/${APACHE_CONFIG_FILE}" > /dev/null <<EOF_APACHE_CONF
 <VirtualHost *:80>
     ServerAdmin webmaster@localhost
     DocumentRoot /var/www/html/sla_status
@@ -96,13 +90,12 @@ tee "./${APACHE_CONFIG_DIR}/${APACHE_CONFIG_FILE}" > /dev/null <<'EOF_APACHE_CON
         AllowOverride All
         Require all granted
     </Directory>
-    ErrorLog ${APACHE_LOG_DIR}/error.log
-    CustomLog ${APACHE_LOG_DIR}/access.log combined
+    ErrorLog \${APACHE_LOG_DIR}/error.log
+    CustomLog \${APACHE_LOG_DIR}/access.log combined
 </VirtualHost>
 EOF_APACHE_CONF
 print_info "Created Apache config file: ./${APACHE_CONFIG_DIR}/${APACHE_CONFIG_FILE}"
 
-# The here-document block for the Dockerfile
 tee "./${DOCKERFILE_NAME}" > /dev/null <<'EOF_DOCKERFILE_CONTENT'
 # =========================================================================
 # STAGE 1: Builder
@@ -135,29 +128,41 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD curl -f http://lo
 EOF_DOCKERFILE_CONTENT
 print_info "Created new multi-stage Dockerfile: ./${DOCKERFILE_NAME}"
 
-# 4. Create docker-compose.yml in current directory
+# 4. Create docker-compose.yml with the 'env_file' directive
 print_info "Creating ${DOCKER_COMPOSE_FILE_NAME}..."
-tee "${DOCKER_COMPOSE_FILE_NAME}" > /dev/null <<'EOF_DOCKER_COMPOSE_CONTENT'
+tee "${DOCKER_COMPOSE_FILE_NAME}" > /dev/null <<EOF_DOCKER_COMPOSE_CONTENT
 version: '3.8'
 services:
   sla_monitor_central_app:
+    env_file:
+      - ./${ENV_FILE_NAME}
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: ${DOCKERFILE_NAME}
     container_name: sla_monitor_central_app
     restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ${HOST_OPT_SLA_MONITOR_DIR}:/opt/sla_monitor
-      - ${HOST_API_LOGS_DIR}/sla_api.log:/var/log/sla_api.log
-      - ${HOST_APACHE_LOGS_DIR}:/var/log/apache2
+      - \${HOST_OPT_SLA_MONITOR_DIR}:/opt/sla_monitor
+      - \${HOST_API_LOGS_DIR}/sla_api.log:/var/log/sla_api.log
+      - \${HOST_APACHE_LOGS_DIR}:/var/log/apache2
     environment:
       APACHE_LOG_DIR: /var/log/apache2
 EOF_DOCKER_COMPOSE_CONTENT
 
-# 5. Initialize sla_config.env and SQLite Database on Host Volume
+# 5. Create the .env file for docker-compose to use
+print_info "Creating environment file for Docker Compose: ${ENV_FILE_NAME}"
+tee "${ENV_FILE_NAME}" > /dev/null <<EOF_ENV_FILE
+# This file is automatically generated by setup_central_server.sh
+# It provides the host paths to the docker-compose command.
+HOST_OPT_SLA_MONITOR_DIR=${HOST_OPT_SLA_MONITOR_DIR}
+HOST_API_LOGS_DIR=${HOST_API_LOGS_DIR}
+HOST_APACHE_LOGS_DIR=${HOST_APACHE_LOGS_DIR}
+EOF_ENV_FILE
+
+# 6. Initialize sla_config.env and SQLite Database on Host Volume
 HOST_VOLUME_CONFIG_FILE_PATH="${HOST_OPT_SLA_MONITOR_DIR}/${SLA_CONFIG_HOST_FINAL_NAME}"
 SOURCE_CONFIG_TEMPLATE_PATH="./${APP_SOURCE_SUBDIR}/${SLA_CONFIG_SOURCE_NAME}"
 print_info "Initializing ${SLA_CONFIG_HOST_FINAL_NAME} on host volume: ${HOST_VOLUME_CONFIG_FILE_PATH}"
@@ -170,7 +175,6 @@ fi
 
 print_info "Initializing CENTRAL SQLite database on host: ${SQLITE_DB_FILE_HOST_PATH}"
 sudo touch "${SQLITE_DB_FILE_HOST_PATH}"
-# Set directory permissions before creating DB content
 sudo chown -R root:www-data "${HOST_DATA_ROOT}"
 sudo chmod -R 770 "${HOST_DATA_ROOT}"
 sudo chmod 660 "${HOST_VOLUME_CONFIG_FILE_PATH}"
@@ -188,7 +192,7 @@ VACUUM;
 EOF
 print_info "Database schema created/verified."
 
-# 6. Build and Start the Docker Container
+# 7. Build and Start the Docker Container
 print_info "Building and starting Docker container..."
 sudo docker-compose -f "${DOCKER_COMPOSE_FILE_NAME}" up --build -d
 if [ $? -eq 0 ]; then
@@ -204,4 +208,3 @@ SERVER_IP=$(hostname -I | awk '{print $1}')
 print_info "CENTRAL Dashboard available at: http://${SERVER_IP:-<your_server_ip>}/"
 print_info "Setup finished."
 print_info "--------------------------------------------------------------------"
-```info "--------------------------------------------------------------------"
