@@ -1,52 +1,36 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Central Internet SLA Monitor</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Internet Performance Monitor</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; background-color: #f0f2f5; color: #333; }
-        .dashboard-container { max-width: 1200px; margin: 20px auto; background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        h1 { margin-bottom: 20px; font-size: 2.2em; color: #1a237e; text-align: center;}
-        h2 { font-size: 1.5em; margin-top: 30px; margin-bottom: 15px; color: #343a40; border-bottom: 1px solid #eee; padding-bottom: 8px;}
-        .top-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom:15px; border-bottom: 1px solid #eee; flex-wrap: wrap; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background-color: #f0f2f5; color: #333; }
+        .dashboard-container { max-width: 1300px; margin: 0 auto; background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        h1, h2 { color: #1a237e; text-align: center; }
+        h1 { font-size: 2em; } h2 { font-size: 1.6em; margin-top: 30px; margin-bottom: 20px;}
+        .top-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #eee; flex-wrap: wrap; gap: 15px; }
         .isp-selector-container label { margin-right: 8px; font-weight: 500; }
-        .isp-selector-container select { padding: 8px 12px; border-radius: 4px; border: 1px solid #ccc; font-size: 1em; min-width: 250px; }
-        .timestamp { font-size: 0.9em; color: #555; margin-bottom: 10px; }
-        .summary-sla-section { display: flex; justify-content: space-around; text-align: center; margin-bottom: 25px; padding: 20px; background-color: #e9ecef; border-radius: 6px; flex-wrap: wrap; gap: 15px;}
-        .summary-sla-item { flex: 1; min-width: 200px; padding:10px; background-color:#f8f9fa; border-radius: 4px; border: 1px solid #dee2e6;}
-        .summary-sla-item h3 { font-size: 1.1em; color: #495057; margin-top:0; margin-bottom: 8px; }
-        .summary-sla-value { font-size: 1.8em; font-weight: bold; }
-        .summary-sla-value.good { color: #28a745; } .summary-sla-value.warn { color: #ffc107; } .summary-sla-value.poor { color: #dc3545; } .summary-sla-value.unknown {color: #6c757d;}
-        
-        .agent-lists-container { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 25px;}
-        .agent-list-section { flex: 1; min-width: 300px; }
-        .agent-list-section h2 { text-align: left; font-size: 1.3em; }
-        .agent-list { list-style-type: none; padding: 0; }
-        .agent-list li { background-color: #f8f9fa; margin-bottom: 10px; padding: 12px 15px; border-radius: 6px; border: 1px solid #dee2e6; }
-        .agent-name { font-weight: bold; font-size: 1.05em; color: #007bff; text-decoration: none; cursor: pointer; }
-        .agent-name:hover { text-decoration: underline; }
-        .agent-details { font-size: 0.8em; color: #6c757d; margin-top: 4px; line-height: 1.4; }
-        .agent-details span { display: block; }
-
-        #individual-agent-detail-section h2 { text-align: center; font-size: 1.8em;}
-        .status-banner { padding: 18px; border-radius: 6px; text-align: center; font-size: 1.7em; font-weight: bold; margin-bottom: 15px; color: white; }
-        .status-banner.good_performance { background-color: #28a745; }.status-banner.degraded_performance { background-color: #ffc107; color: #212529; } .status-banner.poor_performance { background-color: #fd7e14; }.status-banner.critical_service_failure, .status-banner.connectivity_down { background-color: #dc3545; } .status-banner.unknown { background-color: #6c757d; }
-        .current-sla-status { text-align: center; font-size: 1.2em; font-weight: bold; margin-bottom: 10px; padding: 10px; border-radius: 5px; }
-        .current-sla-status.met { color: #155724; background-color: #d4edda; border: 1px solid #c3e6cb;} .current-sla-status.not_met { color: #721c24; background-color: #f8d7da; border: 1px solid #f5c6cb;} .current-sla-status.unknown { color: #383d41; background-color: #e2e3e5; border: 1px solid #d6d8db;}
-        .historical-sla-section { margin-bottom: 25px; padding: 15px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #dee2e6; }
-        .historical-sla-section h3 { font-size: 1.3em; color: #3f51b5; margin-top: 0; margin-bottom: 15px; text-align: left; border-bottom: 1px solid #ccc; padding-bottom: 8px;}
-        .sla-period-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed #e0e0e0; } .sla-period-item:last-child { border-bottom: none; } .sla-period-label { font-weight: 500; } .sla-percentage { font-weight: bold; font-size: 1.1em; } .sla-percentage.met { color: #28a745; } .sla-percentage.not-met { color: #dc3545; } .sla-details { font-size: 0.85em; color: #6c757d; }
-        .chart-section { margin-bottom: 25px; padding: 15px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #dee2e6; }
-        .chart-section h3 { font-size: 1.3em; color: #3f51b5; margin-top: 0; margin-bottom: 15px; text-align: left; border-bottom: 1px solid #ccc; padding-bottom: 8px;} .chart-section h3 small { font-size: 0.7em; color: #6c757d; }
-        .chart-container { width: 100%; height: 300px; position: relative; }
+        .isp-selector-container select { padding: 8px 12px; border-radius: 4px; border: 1px solid #ccc; font-size: 1em; min-width: 300px; background-color: #fff; }
+        .timestamp { font-size: 0.9em; color: #555; }
         .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
-        .metric-card { background-color: #ffffff; padding: 20px; border-radius: 8px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05); } .metric-card h3 { margin-top: 0; color: #3f51b5; border-bottom: 1px solid #e0e0e0; padding-bottom: 10px; font-size: 1.25em; } .metric-card p { margin: 10px 0; font-size: 0.95em; line-height: 1.6; }.metric-card strong { color: #333; }.metric-card .value { font-weight: 600; } .metric-card .value.ok { color: #28a745; }.metric-card .value.warn { color: #ffc107; }.metric-card .value.fail { color: #dc3545; } .metric-card .muted { color: #6c757d; font-size: 0.85em; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9em; } th, td { border: 1px solid #e0e0e0; padding: 10px; text-align: left; } th { background-color: #f8f9fa; font-weight: 600; }
-        .loader { border: 5px solid #e0e0e0; border-top: 5px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 30px auto; } @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .download-button-container { text-align: center; margin-bottom: 20px; } .download-button { display: inline-block; padding: 10px 20px; font-size: 1em; font-weight: bold; color: #fff; background-color: #007bff; border: none; border-radius: 5px; text-decoration: none;} .download-button:hover { background-color: #0056b3; }
+        .metric-card { background-color: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #e0e0e0; }
+        .metric-card h3 { margin-top: 0; color: #3f51b5; border-bottom: 1px solid #e0e0e0; padding-bottom: 10px; font-size: 1.2em; }
+        .metric-card p { margin: 10px 0; font-size: 1em; line-height: 1.5; display: flex; justify-content: space-between; }
+        .metric-card strong { font-weight: 600; }
+        .chart-container { width: 100%; height: 320px; margin-top: 20px; }
+        .sla-period-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed #e0e0e0; }
+        .sla-period-item:last-child { border-bottom: none; }
+        .sla-period-label { font-weight: 500; }
+        .sla-percentage { font-weight: bold; font-size: 1.2em; }
+        .sla-percentage.met { color: #28a745; }
+        .sla-percentage.not-met { color: #dc3545; }
+        .sla-details { font-size: 0.9em; color: #6c757d; }
         .hidden { display: none !important; }
+        .loader { border: 5px solid #e0e0e0; border-top: 5px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 50px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -54,227 +38,236 @@
         <h1>Internet Performance Monitor</h1>
         <div class="top-info">
             <div class="isp-selector-container">
-                <label for="isp-profile-selector">View Agent/ISP Profile:</label>
+                <label for="isp-profile-selector">View Agent Profile:</label>
                 <select id="isp-profile-selector"><option value="">Loading Agents...</option></select>
             </div>
-            <div id="last-checked" class="timestamp">Last System Check: Loading...</div>
-        </div>
-        
-        <div id="overall-summary-section">
-            <h2>Overall SLA Averages (<span id="overall-sla-period-label">Last 30 Days</span>)</h2>
-            <div class="summary-sla-section">
-                <div class="summary-sla-item"><h3>All ISP Agents</h3><div id="avg-sla-isp" class="summary-sla-value unknown">N/A%</div></div>
-                <div class="summary-sla-item"><h3>All Client Agents</h3><div id="avg-sla-client" class="summary-sla-value unknown">N/A%</div></div>
-                <div class="summary-sla-item"><h3>All Agents</h3><div id="avg-sla-all" class="summary-sla-value unknown">N/A%</div></div>
-            </div>
-            <div class="agent-lists-container">
-                <div class="agent-list-section"><h2>ISP Agents</h2><ul id="isp-agent-list" class="agent-list"><li class="muted">Loading...</li></ul></div>
-                <div class="agent-list-section"><h2>Client Agents</h2><ul id="client-agent-list" class="agent-list"><li class="muted">Loading...</li></ul></div>
-            </div>
+            <div id="last-checked" class="timestamp">Last Agent Check: Loading...</div>
         </div>
 
-        <div id="individual-agent-detail-section" class="hidden">
-            <h2 id="individual-agent-name">Agent Details</h2>
-            <div class="download-button-container"><a id="individual-csv-download" href="historical_sla_data.csv" download="sla_history.csv" class="download-button"><span role="img" aria-label="floppy disk">💾</span> Download Agent Data (CSV)</a></div>
-            <div id="health-summary-banner" class="status-banner unknown">Loading Health Status...</div>
-            <div id="current-sla-interval-status" class="current-sla-status unknown">Current Interval SLA: Loading...</div>
-            <div class="historical-sla-section"><h3>Historical SLA (Target: <span id="sla-target-display">N/A</span>%)</h3><div id="historical-sla-data"><p class="muted">Loading...</p></div></div>
-            <div class="chart-section"><h3>Recent Ping RTT & Jitter <small>(ms)</small></h3><div class="chart-container"><canvas id="rttChart"></canvas></div></div>
-            <div class="chart-section"><h3>Recent Speed Test Trend <small>(Mbps)</small></h3><div class="chart-container"><canvas id="speedTestChart"></canvas></div></div>
+        <div id="loader" class="loader"></div>
+        
+        <div id="dashboard-content" class="hidden">
+            <h2 id="agent-name-header"></h2>
+            
             <div class="grid-container">
-                <div class="metric-card" id="ping-card"><h3><span role="img" aria-label="signal">📶</span> Ping & Connectivity</h3><p>Overall Ping Status: <strong id="ping-overall-status" class="value">N/A</strong></p><p>Avg RTT: <strong id="ping-avg-rtt" class="value">N/A</strong></p><p>Avg Jitter: <strong id="ping-avg-jitter" class="value">N/A</strong> ms</p><p>Avg Loss: <strong id="ping-avg-loss" class="value">N/A</strong> %</p><h4>Target Details:</h4><table id="ping-targets-table"><thead><tr><th>Host</th><th>Status</th><th>RTT (ms)</th><th>Jitter (ms)</th><th>Loss (%)</th></tr></thead><tbody><tr><td colspan="5" class="muted">Loading...</td></tr></tbody></table></div>
-                <div class="metric-card" id="dns-card"><h3><span role="img" aria-label="globe">🌐</span> DNS Resolution</h3><p>Host Tested: <strong id="dns-host" class="value">N/A</strong></p><p>Status: <strong id="dns-status" class="value">N/A</strong></p><p>Resolution Time: <strong id="dns-time" class="value">N/A</strong></p></div>
-                <div class="metric-card" id="http-card"><h3><span role="img" aria-label="link">🔗</span> HTTP Check</h3><p>URL Tested: <strong id="http-url" class="value">N/A</strong></p><p>Status: <strong id="http-status" class="value">N/A</strong></p><p>Response Code: <strong id="http-code" class="value">N/A</strong></p><p>Total Time: <strong id="http-time" class="value">N/A</strong></p></div>
-                <div class="metric-card" id="speedtest-card"><h3><span role="img" aria-label="gauge">💨</span> Speed Test</h3><p>Status: <strong id="speedtest-status" class="value">N/A</strong></p><p>Download: <strong id="speedtest-dl" class="value">N/A</strong> Mbps</p><p>Upload: <strong id="speedtest-ul" class="value">N/A</strong> Mbps</p><p>Ping (ST): <strong id="speedtest-ping" class="value">N/A</strong> ms</p><p>Jitter (ST): <strong id="speedtest-jitter" class="value">N/A</strong> ms</p><p>Server: <strong id="speedtest-server" class="value muted">N/A</strong></p><p id="speedtest-error-container" style="display:none;">Error: <small id="speedtest-error" class="value fail"></small></p></div>
+                <div class="metric-card">
+                    <h3><span role="img" aria-label="signal">📶</span> Ping & Connectivity</h3>
+                    <p><span>Overall Status:</span> <strong id="ping-status">N/A</strong></p>
+                    <p><span>Average RTT:</span> <strong id="ping-rtt">N/A</strong></p>
+                    <p><span>Average Loss:</span> <strong id="ping-loss">N/A</strong></p>
+                    <p><span>Average Jitter:</span> <strong id="ping-jitter">N/A</strong></p>
+                </div>
+                <div class="metric-card">
+                    <h3><span role="img" aria-label="gauge">💨</span> Speed Test</h3>
+                    <p><span>Status:</span> <strong id="speed-status">N/A</strong></p>
+                    <p><span>Download:</span> <strong id="speed-dl">N/A</strong></p>
+                    <p><span>Upload:</span> <strong id="speed-ul">N/A</strong></p>
+                    <p><span>Ping (Speedtest):</span> <strong id="speed-ping">N/A</strong></p>
+                </div>
+                <div class="metric-card">
+                    <h3><span role="img" aria-label="target">🎯</span> Service Level Agreement</h3>
+                    <div id="historical-sla-data"></div>
+                </div>
+            </div>
+
+            <div class="grid-container" style="margin-top: 20px;">
+                <div class="metric-card">
+                    <h3>RTT, Jitter & Loss (%)</h3>
+                    <div class="chart-container">
+                        <canvas id="rttChart"></canvas>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <h3>Download & Upload Speed (Mbps)</h3>
+                    <div class="chart-container">
+                        <canvas id="speedTestChart"></canvas>
+                    </div>
+                </div>
             </div>
         </div>
-        <div id="loader" class="loader" style="display:none;"></div>
     </div>
 
     <script>
-        const statusUrlBase = 'status_agent_'; // For potential future agent-specific status files
-        let currentStatusUrl = 'status.json'; // Default status file (e.g., for central server's own monitoring)
-        let slaStatsUrl = 'get_sla_stats.php'; 
-        const loaderDiv = document.getElementById('loader');
-        const RTT_THRESHOLDS_UI = { ok: 100, warn: 250 }; const LOSS_THRESHOLDS_UI = { ok: 2, warn: 10 }; const PING_JITTER_THRESHOLDS_UI = { ok: 30, warn: 50 }; const DNS_TIME_THRESHOLDS_UI = { ok: 300, warn: 800 }; const HTTP_TIME_THRESHOLDS_UI = { ok: 1.0, warn: 2.5 }; const SPEED_DL_THRESHOLDS_UI = { ok: 60, warn: 30 }; const SPEED_UL_THRESHOLDS_UI = { ok: 20, warn: 5 };
-        let refreshIntervalMs = 60000; let refreshIntervalTimer; let rttChartInstance = null; let speedTestChartInstance = null;
-        const ispProfileSelector = document.getElementById('isp-profile-selector');
-        const overallSummarySection = document.getElementById('overall-summary-section');
-        const individualAgentDetailSection = document.getElementById('individual-agent-detail-section');
+        // --- REWRITTEN AND SIMPLIFIED JAVASCRIPT LOGIC ---
+        const API_URL = 'get_sla_stats.php';
+        let rttChartInstance = null;
+        let speedChartInstance = null;
+        let refreshIntervalTimer = null;
 
-        function setText(id, value, defaultText = 'N/A') { const el = document.getElementById(id); if (el) el.textContent = (value !== undefined && value !== null && value !== "" && String(value).toLowerCase() !== "null") ? String(value) : defaultText; }
-        function setClassForBanner(id, statusText) { const el = document.getElementById(id); if (el) { el.className = 'status-banner'; if (statusText) { el.classList.add(String(statusText).toLowerCase().replace(/ /g, '_')); } else { el.classList.add('unknown'); } } }
-        function classifyValue(value, thresholds, lowerIsBetter = true) { const valStr = String(value).toLowerCase(); if (valStr === 'n/a' || valStr === 'null' || valStr === "" || value === undefined || value === null) return 'warn'; const numericValue = parseFloat(value); if (isNaN(numericValue)) { if (lowerIsBetter) { return (valStr === 'ok' || valStr === 'up' || valStr === 'completed' || valStr === 'disabled') ? 'ok' : (valStr.startsWith('skipped') || valStr === 'error_code') ? 'warn' : 'fail'; } else { return 'warn'; } } if (lowerIsBetter) { if (numericValue <= thresholds.ok) return 'ok'; if (numericValue <= thresholds.warn) return 'warn'; return 'fail'; } else { if (numericValue >= thresholds.ok) return 'ok'; if (numericValue >= thresholds.warn) return 'warn'; return 'fail'; } }
-        function updateValueWithClass(elementIdOrEl, value, thresholds, lowerIsBetter = true, unit = '') { const el = (typeof elementIdOrEl === 'string') ? document.getElementById(elementIdOrEl) : elementIdOrEl; if (!el) return; let displayValue = (value !== undefined && value !== null && String(value).toLowerCase() !== "null" && String(value) !== "") ? String(value) : 'N/A'; if (el.id) { setText(el.id, `${displayValue}${displayValue !== 'N/A' && unit && !isNaN(parseFloat(displayValue)) ? ' ' + unit : ''}`); } else { el.textContent = `${displayValue}${displayValue !== 'N/A' && unit && !isNaN(parseFloat(displayValue)) ? ' ' + unit : ''}`; } el.classList.remove('ok', 'warn', 'fail'); el.classList.add(classifyValue(value, thresholds, lowerIsBetter)); }
-        
-        // Fetches the main status.json (e.g., for central server's own monitoring, or could be adapted)
-        async function fetchMainLiveData(ispIdToDisplay) {
-            // If an ispId is selected, status.json is less relevant for the *individual* display cards,
-            // as they should show the latest for *that* ISP.
-            // However, the overall health banner might still use a general status.json.
-            // This function currently updates the top banner and current interval SLA based on status.json.
-            // TODO: Re-evaluate how status.json is used in a multi-agent dashboard context.
-            // For now, it will primarily set the "Last System Check" timestamp.
+        const loader = document.getElementById('loader');
+        const profileSelector = document.getElementById('isp-profile-selector');
+        const dashboardContent = document.getElementById('dashboard-content');
+
+        /**
+         * The main function to fetch data and update the entire UI.
+         */
+        async function fetchAndUpdateDashboard(agentId = null) {
+            loader.style.display = 'block';
+            dashboardContent.classList.add('hidden');
+            
+            let url = `${API_URL}?_=${new Date().getTime()}`;
+            if (agentId) {
+                url += `&isp_id=${agentId}`;
+            }
+
             try {
-                const response = await fetch(`${currentStatusUrl}?_=${new Date().getTime()}`);
-                if (!response.ok) { /* console.warn(`Could not fetch ${currentStatusUrl}`); */ return; } // Don't throw fatal error if this one fails
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
                 const data = await response.json();
-                if (data.error) { /* console.warn(`Error in ${currentStatusUrl}:`, data.error); */ return; }
-                
-                const localTimestamp = data.timestamp ? new Date(data.timestamp).toLocaleString() : 'Invalid Date'; 
-                setText('last-checked', `Last Central Monitor Check: ${localTimestamp}`); // General timestamp
+                if (data.error) throw new Error(data.message || 'API returned an error.');
 
-                // Only update main banners if no specific agent is selected OR if the status.json matches the selected agent
-                const selectedIspId = ispProfileSelector.value;
-                if (!selectedIspId || selectedIspId === "" || (data.isp_profile_id && data.isp_profile_id == selectedIspId)) {
-                    const healthSummary = data.detailed_health_summary || "UNKNOWN"; 
-                    const ispName = data.isp_profile_name || "Active Monitor";
-                    const healthBannerText = `${String(healthSummary).replace(/_/g, ' ')} (${ispName})`;
-                    setText('health-summary-banner', healthBannerText); 
-                    setClassForBanner('health-summary-banner', healthSummary); 
-                    const currentSlaDiv = document.getElementById('current-sla-interval-status'); 
-                    if (data.current_sla_met_status) { const slaStatusText = data.current_sla_met_status; currentSlaDiv.textContent = `Current Interval SLA (${ispName}): ${slaStatusText.replace(/_/g, ' ')}`; currentSlaDiv.className = 'current-sla-status ' + slaStatusText.toLowerCase(); } else { currentSlaDiv.textContent = `Current Interval SLA (${ispName}): Unknown`; currentSlaDiv.className = 'current-sla-status unknown'; } 
-                }
+                updateDashboard(data);
+
+                // Reset or set the refresh timer
+                if (refreshIntervalTimer) clearInterval(refreshIntervalTimer);
+                const refreshMs = data.dashboard_refresh_interval_ms || 60000;
+                refreshIntervalTimer = setInterval(() => fetchAndUpdateDashboard(profileSelector.value), refreshMs);
+
             } catch (error) {
-                console.warn('Error fetching main live status data (status.json):', error);
-                setText('last-checked', `Last System Check: Error`);
+                console.error("Failed to fetch or render dashboard data:", error);
+                document.body.innerHTML = `<div style="text-align:center;padding:50px;"><h1>Error</h1><p>Could not load dashboard data. Please check the server logs and browser console.</p><pre>${error.message}</pre></div>`;
+            } finally {
+                loader.style.display = 'none';
             }
         }
-        
-        async function fetchAndDisplayAgentData(ispId = null) {
-            const historicalSlaContainer = document.getElementById('historical-sla-data');
-            let effectiveSlaStatsUrl = slaStatsUrl + `?_=${new Date().getTime()}`;
-            if (ispId && ispId !== "") { effectiveSlaStatsUrl += `&isp_id=${ispId}`; }
 
-            loaderDiv.style.display = 'block';
-            try {
-                const response = await fetch(effectiveSlaStatsUrl);
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status} for ${effectiveSlaStatsUrl}`);
-                const slaData = await response.json(); 
-                if (slaData.error) { console.error(`Error from ${effectiveSlaStatsUrl}:`, slaData.error); historicalSlaContainer.innerHTML = `<p class="muted">Error loading data: ${slaData.error}</p>`; clearIndividualAgentDetails(); overallSummarySection.classList.remove('hidden'); individualAgentDetailSection.classList.add('hidden'); return; }
-                
-                // Populate ISP Profile Selector (only on first successful load or if not populated)
-                if (ispProfileSelector.options.length <= 1 || ispProfileSelector.options[0].value === "Loading...") {
-                    ispProfileSelector.innerHTML = ''; 
-                    const allAgentsOption = document.createElement('option'); allAgentsOption.value = ""; allAgentsOption.textContent = "-- View All Agents Summary --"; ispProfileSelector.appendChild(allAgentsOption);
-                    if(slaData.isp_profiles && slaData.isp_profiles.length > 0) {
-                        slaData.isp_profiles.forEach(profile => { const option = document.createElement('option'); option.value = profile.id; option.textContent = profile.name; ispProfileSelector.appendChild(option); });
-                    }
-                }
-                // Set the selector to the currently viewed ISP ID, or to "All Agents" if no specific ID
-                ispProfileSelector.value = ispId || ""; 
-                
-                if (!ispId || ispId === "") { // MAIN SUMMARY VIEW
-                    overallSummarySection.classList.remove('hidden');
-                    individualAgentDetailSection.classList.add('hidden');
-                    document.title = "Overall SLA Monitor";
-                    setText('overall-sla-period-label', `Last ${slaData.average_slas_period_days || 30} Days`);
+        /**
+         * Takes the complete data object from the API and updates all UI components.
+         */
+        function updateDashboard(data) {
+            updateProfileSelector(data.isp_profiles, data.current_isp_profile_id);
 
-                    updateValueWithClass('avg-sla-all', slaData.average_slas.all, {ok: slaData.target_sla_percentage, warn: slaData.target_sla_percentage - 2}, slaData.average_slas.all !== null && parseFloat(slaData.average_slas.all) >= slaData.target_sla_percentage, '%');
-                    updateValueWithClass('avg-sla-isp', slaData.average_slas.isp, {ok: slaData.target_sla_percentage, warn: slaData.target_sla_percentage - 2}, slaData.average_slas.isp !== null && parseFloat(slaData.average_slas.isp) >= slaData.target_sla_percentage, '%');
-                    updateValueWithClass('avg-sla-client', slaData.average_slas.client, {ok: slaData.target_sla_percentage, warn: slaData.target_sla_percentage - 2}, slaData.average_slas.client !== null && parseFloat(slaData.average_slas.client) >= slaData.target_sla_percentage, '%');
-                    
-                    const ispAgentList = document.getElementById('isp-agent-list'); const clientAgentList = document.getElementById('client-agent-list');
-                    ispAgentList.innerHTML = ''; clientAgentList.innerHTML = ''; let hasIsps = false, hasClients = false;
-                    (slaData.isp_profiles || []).forEach(profile => {
-                        const li = document.createElement('li'); const nameLink = document.createElement('a'); nameLink.href = `#`; nameLink.className = 'agent-name'; nameLink.textContent = profile.name.split(' (')[0]; nameLink.title = profile.name; nameLink.onclick = (e) => { e.preventDefault(); ispProfileSelector.value = profile.id; fetchAndDisplayAgentData(profile.id); history.pushState({isp_id: profile.id},'',`?isp_id=${profile.id}`);}; const details = document.createElement('div'); details.className = 'agent-details'; details.innerHTML = `<span>ID: ${profile.agent_identifier || 'N/A'}</span><span>Host: ${profile.last_reported_hostname || 'N/A'} | IP: ${profile.last_reported_source_ip || 'N/A'}</span><span>Last Heard: ${profile.last_heard_from ? new Date(profile.last_heard_from).toLocaleString() : 'Never'}</span>`; li.appendChild(nameLink); li.appendChild(details);
-                        if (profile.agent_type === 'ISP') { ispAgentList.appendChild(li); hasIsps = true; } else if (profile.agent_type === 'Client') { clientAgentList.appendChild(li); hasClients = true; }
-                    });
-                    if (!hasIsps) ispAgentList.innerHTML = '<li>No ISP agents configured/reporting.</li>'; if (!hasClients) clientAgentList.innerHTML = '<li>No Client agents configured/reporting.</li>';
-                } else { // INDIVIDUAL AGENT DETAIL VIEW
-                    overallSummarySection.classList.add('hidden');
-                    individualAgentDetailSection.classList.remove('hidden');
-                    document.title = `${slaData.current_isp_name} - SLA Monitor`;
-                    setText('individual-agent-name', `${slaData.current_isp_name} Details`);
-                    document.getElementById('individual-csv-download').setAttribute('download', `sla_history_${slaData.current_isp_name.replace(/[^a-z0-9]/gi, '_')}.csv`);
-
-
-                    document.getElementById('sla-target-display').textContent = slaData.target_sla_percentage;
-                    historicalSlaContainer.innerHTML = ''; 
-                    for (const periodKey in slaData.periods) { const period = slaData.periods[periodKey]; const itemDiv = document.createElement('div'); itemDiv.className = 'sla-period-item'; const labelSpan = document.createElement('span'); labelSpan.className = 'sla-period-label'; labelSpan.textContent = period.label + ': '; const percentageSpan = document.createElement('span'); percentageSpan.className = 'sla-percentage ' + (period.is_target_met ? 'met' : 'not-met'); percentageSpan.textContent = period.achieved_percentage + '%'; const detailsSpan = document.createElement('span'); detailsSpan.className = 'sla-details'; detailsSpan.textContent = ` (${period.met_intervals} of ${period.total_intervals} intervals met)`; itemDiv.appendChild(labelSpan); itemDiv.appendChild(percentageSpan); itemDiv.appendChild(detailsSpan); historicalSlaContainer.appendChild(itemDiv); } 
-                    if (Object.keys(slaData.periods).length === 0) { historicalSlaContainer.innerHTML = '<p class="muted">No historical SLA data for this agent.</p>'; }
-
-                    renderRttChartWithChartJS(slaData.rtt_chart_data || []);
-                    renderSpeedTestChartWithChartJS(slaData.speed_chart_data || []);
-                    fetchAgentSpecificLiveData(ispId); // Fetch latest status for this specific agent
-                }
-                if (slaData.dashboard_refresh_interval_ms && parseInt(slaData.dashboard_refresh_interval_ms) > 0) { const newInterval = parseInt(slaData.dashboard_refresh_interval_ms); if (newInterval !== refreshIntervalMs) { refreshIntervalMs = newInterval; if (refreshIntervalTimer) { clearInterval(refreshIntervalTimer); } refreshIntervalTimer = setInterval(() => fetchAllData(ispProfileSelector.value || null), refreshIntervalMs); } }
-            } catch (error) { console.error('Error fetching or parsing historical SLA data:', error); historicalSlaContainer.innerHTML = '<p class="muted">Could not load historical SLA data. Check console.</p>'; renderRttChartWithChartJS([]); renderSpeedTestChartWithChartJS([]); }
-            finally { loaderDiv.style.display = 'none'; }
-        }
-        
-        // This fetches and updates the individual agent cards (status.json specific to active monitor OR a future agent-specific status)
-        async function fetchAgentSpecificLiveData(ispId) {
-            // For this version, status.json always reflects the "active monitor" (potentially central server's own)
-            // So, we only populate individual cards if the selected ispId matches what's in status.json, or if no ispId is selected (main view)
-            // This is a simplification. A more robust way would be for agents to post to unique status files or an API endpoint for live status.
-            try {
-                const response = await fetch(`${statusUrl}?_=${new Date().getTime()}`); // status.json
-                if (!response.ok) { updateIndividualAgentCards({}); return; }
-                const data = await response.json();
-                if (data.error) { updateIndividualAgentCards({}); return; }
-
-                const selectedIspId = ispProfileSelector.value;
-                // Only update individual cards if we are in an individual view AND if status.json is relevant
-                // (status.json should ideally contain the isp_profile_id it represents)
-                // For now, let's assume status.json is always for the 'active' default monitor.
-                // If an ISP is selected and status.json is *not* for that ISP, the cards might show wrong live data.
-                // This part needs careful consideration for multi-agent live view.
-                // A simple approach for now: update if individual view is active.
-                if (selectedIspId && selectedIspId !== "") {
-                     updateIndividualAgentCards(data, data.isp_profile_name || "Selected Agent");
-                } else {
-                    // If on main summary view, potentially show central server's own status in these cards if available
-                    // updateIndividualAgentCards(data, data.isp_profile_name || "Central Monitor"); 
-                    // Or clear them if they are only for individual view:
-                    clearIndividualAgentDetails();
-                }
-            } catch (error) {
-                console.warn('Error fetching agent specific live data from status.json:', error);
-                if (ispProfileSelector.value && ispProfileSelector.value !== "") {
-                    updateIndividualAgentCards({}); // Clear cards on error for individual view
-                }
+            if (data.current_isp_profile_id === null) {
+                document.getElementById('agent-name-header').textContent = "No active agent found. Please configure an agent.";
+            } else {
+                document.getElementById('agent-name-header').textContent = `${data.current_isp_name} - Live Status & Trends`;
+                updateDetailView(data);
             }
-        }
-        function clearIndividualAgentDetails() {
-            const elementsToClear = ['ping-overall-status', 'ping-avg-rtt', 'ping-avg-jitter', 'ping-avg-loss', 'dns-host', 'dns-status', 'dns-time', 'http-url', 'http-status', 'http-code', 'http-time', 'speedtest-status', 'speedtest-dl', 'speedtest-ul', 'speedtest-ping', 'speedtest-jitter', 'speedtest-server'];
-            elementsToClear.forEach(id => setText(id, 'N/A'));
-            document.querySelector('#ping-targets-table tbody').innerHTML = '<tr><td colspan="5" class="muted">Select an agent to see details.</td></tr>';
-            setText('health-summary-banner', 'Select an agent to view details');
-            setClassForBanner('health-summary-banner', 'unknown');
-            setText('current-sla-interval-status', 'Current Interval SLA: Select an agent');
-            document.getElementById('current-sla-interval-status').className = 'current-sla-status unknown';
+            dashboardContent.classList.remove('hidden');
         }
 
-        function updateIndividualAgentCards(data, currentISPName = "Selected Agent") { 
-            // This function populates the detailed cards when an individual agent is viewed
-            const healthSummary = data.detailed_health_summary || "UNKNOWN"; 
-            const healthBannerText = `${String(healthSummary).replace(/_/g, ' ')} (${currentISPName})`;
-            setText('health-summary-banner', healthBannerText); 
-            setClassForBanner('health-summary-banner', healthSummary); 
-            const currentSlaDiv = document.getElementById('current-sla-interval-status'); 
-            if (data.current_sla_met_status) { const slaStatusText = data.current_sla_met_status; currentSlaDiv.textContent = `Current Interval SLA (${currentISPName}): ${slaStatusText.replace(/_/g, ' ')}`; currentSlaDiv.className = 'current-sla-status ' + slaStatusText.toLowerCase(); } else { currentSlaDiv.textContent = `Current Interval SLA (${currentISPName}): Unknown`; currentSlaDiv.className = 'current-sla-status unknown'; } 
-            if (data.ping_summary) { updateValueWithClass('ping-overall-status', data.ping_summary.status, {}, data.ping_summary.status === 'UP'); updateValueWithClass('ping-avg-rtt', data.ping_summary.average_rtt_ms, RTT_THRESHOLDS_UI, true, 'ms'); updateValueWithClass('ping-avg-jitter', data.ping_summary.average_jitter_ms, PING_JITTER_THRESHOLDS_UI, true, 'ms'); updateValueWithClass('ping-avg-loss', data.ping_summary.average_packet_loss_percent, LOSS_THRESHOLDS_UI, true, '%'); } 
-            const pingTableBody = document.querySelector('#ping-targets-table tbody'); pingTableBody.innerHTML = ''; 
-            if (data.ping_targets && data.ping_targets.length > 0) { data.ping_targets.forEach(target => { const row = pingTableBody.insertRow(); row.insertCell().textContent = target.host; updateValueWithClass(row.insertCell(), target.status, {}, target.status === 'UP'); updateValueWithClass(row.insertCell(), target.avg_rtt_ms, RTT_THRESHOLDS_UI, true, 'ms'); updateValueWithClass(row.insertCell(), target.avg_jitter_ms, PING_JITTER_THRESHOLDS_UI, true, 'ms'); updateValueWithClass(row.insertCell(), target.packet_loss_percent, LOSS_THRESHOLDS_UI, true, '%'); }); } else { pingTableBody.innerHTML = '<tr><td colspan="5" class="muted">No ping target data.</td></tr>'; } 
-            if (data.dns_resolution) { setText('dns-host', data.dns_resolution.host_tested); updateValueWithClass('dns-status', data.dns_resolution.status, {}, data.dns_resolution.status === 'OK'); updateValueWithClass('dns-time', data.dns_resolution.resolve_time_ms, DNS_TIME_THRESHOLDS_UI, true, 'ms'); } 
-            if (data.http_check) { setText('http-url', data.http_check.url_tested); updateValueWithClass('http-status', data.http_check.status, {}, data.http_check.status === 'OK'); setText('http-code', data.http_check.response_code); updateValueWithClass('http-time', data.http_check.total_time_s, HTTP_TIME_THRESHOLDS_UI, true, 's'); } 
-            if (data.speed_test) { updateValueWithClass('speedtest-status', data.speed_test.status, {}, data.speed_test.status === 'COMPLETED'); updateValueWithClass('speedtest-dl', data.speed_test.download_mbps, SPEED_DL_THRESHOLDS_UI, false, 'Mbps'); updateValueWithClass('speedtest-ul', data.speed_test.upload_mbps, SPEED_UL_THRESHOLDS_UI, false, 'Mbps'); updateValueWithClass('speedtest-ping', data.speed_test.ping_ms, RTT_THRESHOLDS_UI, true, 'ms'); updateValueWithClass('speedtest-jitter', data.speed_test.jitter_ms, PING_JITTER_THRESHOLDS_UI, true, 'ms'); setText('speedtest-server', data.speed_test.server_name); const errorContainer = document.getElementById('speedtest-error-container'); const errorEl = document.getElementById('speedtest-error'); if (data.speed_test.error_message && String(data.speed_test.error_message).trim() !== "") { errorEl.textContent = data.speed_test.error_message; errorContainer.style.display = 'block'; } else { errorContainer.style.display = 'none'; } } 
+        /**
+         * Populates the agent profile selector dropdown.
+         */
+        function updateProfileSelector(profiles, selectedId) {
+            if (!profiles || profileSelector.getAttribute('data-populated')) {
+                 profileSelector.value = selectedId;
+                 return;
+            }
+            profileSelector.innerHTML = ''; // Clear existing options
+            if (profiles.length === 0) {
+                 profileSelector.innerHTML = '<option value="">No Agents Found</option>';
+                 return;
+            }
+            profiles.forEach(profile => {
+                const option = document.createElement('option');
+                option.value = profile.id;
+                option.textContent = `${profile.agent_name} (${profile.agent_type}) ${profile.is_active ? '' : '(Inactive)'}`;
+                option.selected = profile.id == selectedId;
+                profileSelector.appendChild(option);
+            });
+            profileSelector.setAttribute('data-populated', 'true');
         }
-        function renderRttChartWithChartJS(data) { /* ... same as previous complete version ... */ }
-        function renderSpeedTestChartWithChartJS(data) { /* ... same as previous complete version ... */ }
-        
-        async function fetchAllData(ispId = null) {
-            loaderDiv.style.display = 'block';
-            await fetchMainLiveData(); // Fetches general status.json for top timestamp
-            await fetchAndDisplayAgentData(ispId); // Fetches data for selected/all agents
-            loaderDiv.style.display = 'none';
+
+        function setText(id, value, unit = '') {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const displayValue = (value !== null && value !== undefined && String(value) !== '') ? String(value) : 'N/A';
+            el.textContent = `${displayValue}${displayValue !== 'N/A' && unit ? ` ${unit}` : ''}`;
         }
         
-        const urlParams = new URLSearchParams(window.location.search);
-        const initialIspId = urlParams.get('isp_id');
-        fetchAllData(initialIspId); 
-        refreshIntervalTimer = setInterval(() => fetchAllData(ispProfileSelector.value || null), refreshIntervalMs);
+        /**
+         * Populates all components of the individual agent detail view.
+         */
+        function updateDetailView(data) {
+            const latest = data.latest_check;
+            
+            setText('last-checked', latest ? `Last Agent Check: ${new Date(latest.timestamp).toLocaleString()}` : 'No recent data for this agent.');
+
+            // Populate Live Status Cards
+            setText('ping-status', latest?.overall_connectivity, '');
+            setText('ping-rtt', latest?.avg_rtt_ms, 'ms');
+            setText('ping-loss', latest?.avg_loss_percent, '%');
+            setText('ping-jitter', latest?.avg_jitter_ms, 'ms');
+
+            setText('speed-status', latest?.speedtest_status, '');
+            setText('speed-dl', latest?.speedtest_download_mbps, 'Mbps');
+            setText('speed-ul', latest?.speedtest_upload_mbps, 'Mbps');
+            setText('speed-ping', latest?.speedtest_ping_ms, 'ms');
+
+            // Populate Historical SLA Section
+            const slaContainer = document.getElementById('historical-sla-data');
+            slaContainer.innerHTML = `<h3>SLA (Target: ${data.target_sla_percentage}%)</h3>`;
+            if (Object.keys(data.periods).length > 0) {
+                for (const key in data.periods) {
+                    const period = data.periods[key];
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'sla-period-item';
+                    itemDiv.innerHTML = `<span class="sla-period-label">${period.label}:</span>
+                                         <span class="sla-percentage ${period.is_target_met ? 'met' : 'not-met'}">${period.achieved_percentage}%</span>
+                                         <span class="sla-details">(${period.met_intervals} of ${period.total_intervals} intervals met)</span>`;
+                    slaContainer.appendChild(itemDiv);
+                }
+            } else {
+                slaContainer.innerHTML += '<p>No historical data available.</p>';
+            }
+
+            // Render Charts
+            renderRttChart(data.rtt_chart_data);
+            renderSpeedTestChart(data.speed_chart_data);
+        }
+        
+        function renderRttChart(data) {
+            const ctx = document.getElementById('rttChart').getContext('2d');
+            const labels = data.map(d => new Date(d.timestamp));
+            if (rttChartInstance) rttChartInstance.destroy();
+            rttChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Avg RTT (ms)', data: data.map(d => d.avg_rtt_ms), borderColor: 'rgb(54, 162, 235)', yAxisID: 'y', tension: 0.1 },
+                        { label: 'Avg Jitter (ms)', data: data.map(d => d.avg_jitter_ms), borderColor: 'rgb(255, 159, 64)', yAxisID: 'y', tension: 0.1, hidden: true },
+                        { label: 'Packet Loss (%)', data: data.map(d => d.avg_loss_percent), borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.2)', type: 'bar', yAxisID: 'y1' }
+                    ]
+                },
+                options: { maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'PPpp' } }, y: { beginAtZero: true, position: 'left', title: { display: true, text: 'ms' } }, y1: { type: 'linear', display: true, position: 'right', beginAtZero: true, max: 100, title: { display: true, text: '% Loss' }, grid: { drawOnChartArea: false } } } }
+            });
+        }
+        
+        function renderSpeedTestChart(data) {
+            const ctx = document.getElementById('speedTestChart').getContext('2d');
+            const labels = data.map(d => new Date(d.timestamp));
+            if (speedChartInstance) speedChartInstance.destroy();
+            speedChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Download (Mbps)', data: data.map(d => d.speedtest_download_mbps), borderColor: 'rgb(75, 192, 192)', tension: 0.1 },
+                        { label: 'Upload (Mbps)', data: data.map(d => d.speedtest_upload_mbps), borderColor: 'rgb(153, 102, 255)', tension: 0.1 }
+                    ]
+                },
+                options: { maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'PPpp' } }, y: { beginAtZero: true, title: { display: true, text: 'Mbps' } } } }
+            });
+        }
+        
+        // --- Event Listeners & Initial Load ---
+        profileSelector.addEventListener('change', (event) => {
+            const selectedId = event.target.value;
+            history.pushState({ agent_id: selectedId }, '', `?isp_id=${selectedId}`);
+            fetchAndUpdateDashboard(selectedId);
+        });
+
+        window.addEventListener('popstate', (event) => {
+            const agentId = event.state ? event.state.agent_id : new URLSearchParams(window.location.search).get('isp_id');
+            fetchAndUpdateDashboard(agentId);
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const initialAgentId = new URLSearchParams(window.location.search).get('isp_id');
+            fetchAndUpdateDashboard(initialAgentId);
+        });
     </script>
 </body>
 </html>
