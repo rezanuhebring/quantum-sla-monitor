@@ -1,16 +1,90 @@
 #!/bin/bash
-MONITOR_SCRIPT_NAME="monitor_internet.sh"; AGENT_CONFIG_NAME="agent_config.env"
-MONITOR_SCRIPT_DIR="/opt/sla_monitor"; MONITOR_SCRIPT_PATH="${MONITOR_SCRIPT_DIR}/${MONITOR_SCRIPT_NAME}"; CONFIG_FILE_PATH="${MONITOR_SCRIPT_DIR}/${AGENT_CONFIG_NAME}"; AGENT_LOG_FILE="/var/log/internet_sla_monitor_agent.log"
-print_info() { echo -e "\033[0;32m[INFO]\033[0m $1"; }; print_warn() { echo -e "\033[0;33m[WARN]\033[0m $1"; }; print_error() { echo -e "\033[0;31m[ERROR]\033[0m $1" >&2; }
-SOURCE_FILES=("./${MONITOR_SCRIPT_NAME}" "./${AGENT_CONFIG_NAME}"); for file in "${SOURCE_FILES[@]}"; do if [ ! -f "$file" ]; then print_error "Source file '$file' not found."; exit 1; fi; done
-print_info "Starting SLA Monitor AGENT Setup (Linux)..."; if [ "$(id -u)" -ne 0 ]; then print_error "Please run with sudo: sudo $0"; exit 1; fi
-print_info "Updating package list..."; sudo apt update -y || { print_error "Apt update failed."; exit 1; }
-print_info "Installing dependencies..."; sudo apt install -y curl jq bc iputils-ping dnsutils sqlite3 || { print_error "Core dependency installation failed."; exit 1; }
-if curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | sudo bash; then sudo apt install -y speedtest || { print_warn "Failed Ookla 'speedtest'. Trying community..."; sudo apt install -y speedtest-cli || { print_warn "No speedtest CLI."; }; }; else print_warn "Failed Ookla repo. Trying community..."; sudo apt install -y speedtest-cli || { print_warn "No speedtest CLI."; }; fi
-print_info "Accepting Speedtest license terms..."; if command -v /usr/bin/speedtest &> /dev/null; then sudo /usr/bin/speedtest --accept-license --accept-gdpr > /dev/null 2>&1; elif command -v speedtest &> /dev/null; then sudo speedtest --accept-license --accept-gdpr > /dev/null 2>&1; fi; if command -v speedtest-cli &> /dev/null; then sudo speedtest-cli --accept-license --accept-gdpr > /dev/null 2>&1; fi
-print_info "Creating script directory: ${MONITOR_SCRIPT_DIR}"; sudo mkdir -p "${MONITOR_SCRIPT_DIR}"
-print_info "Copying agent configuration (template) to ${CONFIG_FILE_PATH}"; sudo cp "./${AGENT_CONFIG_NAME}" "${CONFIG_FILE_PATH}"; sudo chown root:root "${CONFIG_FILE_PATH}"; sudo chmod 600 "${CONFIG_FILE_PATH}"
-print_info "Copying agent monitoring script to ${MONITOR_SCRIPT_PATH}"; sudo cp "./${MONITOR_SCRIPT_NAME}" "${MONITOR_SCRIPT_PATH}"; sudo chmod +x "${MONITOR_SCRIPT_PATH}"; sudo chown root:root "${MONITOR_SCRIPT_PATH}"
-sudo touch "${AGENT_LOG_FILE}"; sudo chown root:adm "${AGENT_LOG_FILE}"; sudo chmod 640 "${AGENT_LOG_FILE}"
-CRON_FILE_NAME="sla-monitor-agent-cron"; CRON_FILE_DEST="/etc/cron.d/${CRON_FILE_NAME}"; CRON_COMMAND_IN_FILE="root ${MONITOR_SCRIPT_PATH} >> ${AGENT_LOG_FILE} 2>&1"; print_info "Setting up AGENT cron job..."; sudo bash -c "printf '%s\\n' '# SLA Monitor AGENT Cron Job' 'SHELL=/bin/bash' 'PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin' '' '*/15 * * * * ${CRON_COMMAND_IN_FILE}' '' > '${CRON_FILE_DEST}'"; sudo chown root:root "${CRON_FILE_DEST}"; sudo chmod 644 "${CRON_FILE_DEST}"; if [ -f "${CRON_FILE_DEST}" ]; then print_info "Agent cron job created: ${CRON_FILE_DEST}."; else print_error "Failed to create agent cron file."; fi
-print_info "--------------------------------------------------------------------"; print_info "SLA Monitor AGENT Setup finished."; print_info "IMPORTANT: Customize ${CONFIG_FILE_PATH} with unique AGENT_IDENTIFIER, AGENT_TYPE, and CENTRAL_API_URL."; print_info "--------------------------------------------------------------------"
+
+# Revised script to set up the SLA Monitor Agent on a Linux system.
+
+# --- Configuration Variables ---
+MONITOR_SCRIPT_NAME="monitor_internet.sh"
+AGENT_CONFIG_NAME="agent_config.env"
+MONITOR_SCRIPT_DIR="/opt/sla_monitor"
+MONITOR_SCRIPT_PATH="${MONITOR_SCRIPT_DIR}/${MONITOR_SCRIPT_NAME}"
+CONFIG_FILE_PATH="${MONITOR_SCRIPT_DIR}/${AGENT_CONFIG_NAME}"
+AGENT_LOG_FILE="/var/log/internet_sla_monitor_agent.log"
+
+# --- Helper Functions ---
+print_info() { echo -e "\033[0;32m[INFO]\033[0m $1"; }
+print_warn() { echo -e "\033[0;33m[WARN]\033[0m $1"; }
+print_error() { echo -e "\033[0;31m[ERROR]\033[0m $1" >&2; }
+
+# --- Main Setup Logic ---
+print_info "Starting SLA Monitor AGENT Setup (Linux)..."
+if [ "$(id -u)" -ne 0 ]; then print_error "This script must be run with sudo: sudo $0"; exit 1; fi
+
+# 1. Check for source files
+for file in "./${MONITOR_SCRIPT_NAME}" "./${AGENT_CONFIG_NAME}"; do
+    if [ ! -f "$file" ]; then print_error "Source file '$file' not found in current directory."; exit 1; fi
+done
+
+# 2. Install Dependencies
+print_info "Updating package list and installing dependencies..."
+sudo apt-get update -y || { print_error "Apt update failed."; exit 1; }
+sudo apt-get install -y curl jq bc iputils-ping dnsutils sqlite3 || { print_error "Core dependency installation failed."; exit 1; }
+
+# Install Speedtest CLI with fallback
+if curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | sudo bash; then
+    sudo apt-get install -y speedtest || { print_warn "Failed to install Ookla 'speedtest'. Trying community version..."; sudo apt-get install -y speedtest-cli || print_warn "No speedtest CLI could be installed."; }
+else
+    print_warn "Could not add Ookla repo. Trying community version...";
+    sudo apt-get install -y speedtest-cli || print_warn "No speedtest CLI could be installed."
+fi
+
+# Accept license terms for whichever speedtest was installed
+print_info "Attempting to accept Speedtest license terms..."
+if command -v speedtest &> /dev/null; then sudo speedtest --accept-license --accept-gdpr > /dev/null 2>&1; fi
+if command -v speedtest-cli &> /dev/null; then sudo speedtest-cli --accept-license --accept-gdpr > /dev/null 2>&1; fi
+
+# 3. Deploy Application Files Safely
+print_info "Creating script directory: ${MONITOR_SCRIPT_DIR}"
+sudo mkdir -p "${MONITOR_SCRIPT_DIR}"
+
+# Deploy config file ONLY if it doesn't already exist
+if [ ! -f "${CONFIG_FILE_PATH}" ]; then
+    print_info "Copying agent configuration template to ${CONFIG_FILE_PATH}"
+    sudo cp "./${AGENT_CONFIG_NAME}" "${CONFIG_FILE_PATH}"
+    sudo chown root:root "${CONFIG_FILE_PATH}"
+    sudo chmod 600 "${CONFIG_FILE_PATH}"
+else
+    print_warn "Config file ${CONFIG_FILE_PATH} already exists. Skipping copy to preserve user settings."
+fi
+
+# Deploy monitor script
+print_info "Copying agent monitoring script to ${MONITOR_SCRIPT_PATH}"
+sudo cp "./${MONITOR_SCRIPT_NAME}" "${MONITOR_SCRIPT_PATH}"
+sudo chmod +x "${MONITOR_SCRIPT_PATH}"
+sudo chown root:root "${MONITOR_SCRIPT_PATH}"
+
+# 4. Set up Logging and Cron Job
+print_info "Setting up log file and cron job..."
+sudo touch "${AGENT_LOG_FILE}"
+sudo chown root:adm "${AGENT_LOG_FILE}"
+sudo chmod 640 "${AGENT_LOG_FILE}"
+
+CRON_FILE_NAME="sla-monitor-agent-cron"
+CRON_FILE_DEST="/etc/cron.d/${CRON_FILE_NAME}"
+print_info "Creating cron job at ${CRON_FILE_DEST}"
+sudo cat <<EOF > "${CRON_FILE_DEST}"
+# SLA Monitor AGENT Cron Job
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+# Run the monitor script every 15 minutes
+*/15 * * * * root ${MONITOR_SCRIPT_PATH} >> ${AGENT_LOG_FILE} 2>&1
+EOF
+sudo chown root:root "${CRON_FILE_DEST}"
+sudo chmod 644 "${CRON_FILE_DEST}"
+print_info "Agent cron job created successfully."
+
+print_info "--------------------------------------------------------------------"
+print_info "SLA Monitor AGENT Setup finished."
+print_warn "IMPORTANT: Please customize ${CONFIG_FILE_PATH} with a unique"
+print_warn "AGENT_IDENTIFIER, AGENT_TYPE, and the CENTRAL_API_URL."
+print_info "--------------------------------------------------------------------"
