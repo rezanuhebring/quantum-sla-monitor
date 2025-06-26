@@ -67,7 +67,7 @@ else
     print_info "Docker Compose is already installed: $(docker-compose --version)"
 fi
 
-# *** NEW FIX: Ensure sqlite3 command-line tool is installed on the HOST ***
+# Ensure sqlite3 command-line tool is installed on the HOST
 if ! command -v sqlite3 &> /dev/null; then
     print_info "Installing host tool 'sqlite3' for database administration..."
     sudo apt-get install -y sqlite3
@@ -82,16 +82,16 @@ sudo touch "${HOST_API_LOGS_DIR}/sla_api.log"
 # Permissions will be set later, after files are created/copied.
 
 # 3. Create Dockerfile and supporting Apache configuration
-# (This section is the same as the last correct version)
 print_info "Creating Docker build files..."
 mkdir -p ./${APACHE_CONFIG_DIR}
 print_info "Created directory for Apache config: ./${APACHE_CONFIG_DIR}"
+
+# *** THIS BLOCK IS NOW FIXED ***
 tee "./${APACHE_CONFIG_DIR}/${APACHE_CONFIG_FILE}" > /dev/null <<'EOF_APACHE_CONF'
 <VirtualHost *:80>
     ServerAdmin webmaster@localhost
     DocumentRoot /var/www/html/sla_status
-    <Directory /var/w
-ww/html/sla_status>
+    <Directory /var/www/html/sla_status>
         Options Indexes FollowSymLinks
         AllowOverride All
         Require all granted
@@ -99,8 +99,9 @@ ww/html/sla_status>
     ErrorLog ${APACHE_LOG_DIR}/error.log
     CustomLog ${APACHE_LOG_DIR}/access.log combined
 </VirtualHost>
-EOF_APACHE_CONF
+EOF_APACHE_CONF>
 print_info "Created Apache config file: ./${APACHE_CONFIG_DIR}/${APACHE_CONFIG_FILE}"
+
 tee "./${DOCKERFILE_NAME}" > /dev/null <<'EOF_DOCKERFILE_CONTENT'
 # =========================================================================
 # STAGE 1: Builder
@@ -156,7 +157,6 @@ services:
 EOF_DOCKER_COMPOSE_CONTENT
 
 # 5. Initialize sla_config.env and SQLite Database on Host Volume
-# (This section is complex and specific to your application, retained as-is)
 HOST_VOLUME_CONFIG_FILE_PATH="${HOST_OPT_SLA_MONITOR_DIR}/${SLA_CONFIG_HOST_FINAL_NAME}"
 SOURCE_CONFIG_TEMPLATE_PATH="./${APP_SOURCE_SUBDIR}/${SLA_CONFIG_SOURCE_NAME}"
 print_info "Initializing ${SLA_CONFIG_HOST_FINAL_NAME} on host volume: ${HOST_VOLUME_CONFIG_FILE_PATH}"
