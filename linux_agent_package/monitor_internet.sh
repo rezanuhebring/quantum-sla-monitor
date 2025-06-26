@@ -49,10 +49,10 @@ fi
 SPEEDTEST_COMMAND_PATH=""; SPEEDTEST_ARGS=""
 if command -v speedtest &>/dev/null; then
     SPEEDTEST_COMMAND_PATH=$(command -v speedtest)
-    SPEEDTEST_ARGS="--format=json --accept-license --accept-gdpr"
+    SPEEDTEST_ARGS="--json"
 elif command -v speedtest-cli &>/dev/null; then
     SPEEDTEST_COMMAND_PATH=$(command -v speedtest-cli)
-    SPEEDTEST_ARGS="--json --accept-license --accept-gdpr"
+    SPEEDTEST_ARGS="--json"
 fi
 
 # --- Main Logic ---
