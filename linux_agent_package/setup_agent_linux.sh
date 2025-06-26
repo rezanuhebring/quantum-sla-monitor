@@ -27,14 +27,18 @@ done
 # 2. Install Dependencies
 print_info "Updating package list and installing dependencies..."
 sudo apt-get update -y || { print_error "Apt update failed."; exit 1; }
-sudo apt-get install -y curl jq bc iputils-ping dnsutils sqlite3 || { print_error "Core dependency installation failed."; exit 1; }
+sudo apt-get install -y curl jq bc iputils-ping dnsutils || { print_error "Core dependency installation failed."; exit 1; }
 
 # Install Speedtest CLI with fallback
-if curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | sudo bash; then
-    sudo apt-get install -y speedtest || { print_warn "Failed to install Ookla 'speedtest'. Trying community version..."; sudo apt-get install -y speedtest-cli || print_warn "No speedtest CLI could be installed."; }
+if ! command -v speedtest &> /dev/null && ! command -v speedtest-cli &> /dev/null; then
+    if curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | sudo bash; then
+        sudo apt-get install -y speedtest || { print_warn "Failed to install Ookla 'speedtest'. Trying community version..."; sudo apt-get install -y speedtest-cli || print_warn "No speedtest CLI could be installed."; }
+    else
+        print_warn "Could not add Ookla repo. Trying community version...";
+        sudo apt-get install -y speedtest-cli || print_warn "No speedtest CLI could be installed."
+    fi
 else
-    print_warn "Could not add Ookla repo. Trying community version...";
-    sudo apt-get install -y speedtest-cli || print_warn "No speedtest CLI could be installed."
+    print_info "A speedtest command is already installed."
 fi
 
 # Accept license terms for whichever speedtest was installed
@@ -65,7 +69,7 @@ sudo chown root:root "${MONITOR_SCRIPT_PATH}"
 # 4. Set up Logging and Cron Job
 print_info "Setting up log file and cron job..."
 sudo touch "${AGENT_LOG_FILE}"
-sudo chown root:adm "${AGENT_LOG_FILE}"
+sudo chown syslog:adm "${AGENT_LOG_FILE}"
 sudo chmod 640 "${AGENT_LOG_FILE}"
 
 CRON_FILE_NAME="sla-monitor-agent-cron"
@@ -86,5 +90,5 @@ print_info "Agent cron job created successfully."
 print_info "--------------------------------------------------------------------"
 print_info "SLA Monitor AGENT Setup finished."
 print_warn "IMPORTANT: Please customize ${CONFIG_FILE_PATH} with a unique"
-print_warn "AGENT_IDENTIFIER, AGENT_TYPE, and the CENTRAL_API_URL."
+print_warn "AGENT_IDENTIFIER and the correct CENTRAL_API_URL."
 print_info "--------------------------------------------------------------------"
