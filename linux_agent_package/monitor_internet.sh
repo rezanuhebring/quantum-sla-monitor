@@ -1,6 +1,6 @@
 #!/bin/bash
 # SLA Monitor Agent Script
-# FINAL VERSION - Includes fix for ping permissions when run by cron.
+# FINAL VERSION - Includes LANG=C fix for reliable ping parsing.
 
 # --- Source the local agent configuration file ---
 AGENT_CONFIG_FILE="/opt/sla_monitor/agent_config.env"
@@ -67,8 +67,8 @@ if [ "$ENABLE_PING" = true ]; then
     
     total_rtt_sum=0.0; total_loss_sum=0; total_jitter_sum=0.0; ping_targets_up=0
     for host in "${PING_HOSTS[@]}"; do
-        # *** FIX: Use 'sudo' to ensure ping has necessary privileges ***
-        ping_output=$(sudo ping ${ping_interface_arg} -c "$PING_COUNT" -W "$PING_TIMEOUT" -q "$host" 2>&1)
+        # *** FIX: Use LANG=C to force standard English output for reliable parsing ***
+        ping_output=$(sudo LANG=C ping ${ping_interface_arg} -c "$PING_COUNT" -W "$PING_TIMEOUT" -q "$host" 2>&1)
         if [ $? -eq 0 ]; then
             packet_loss=$(echo "$ping_output" | grep -oP '\d+(?=% packet loss)')
             rtt_line=$(echo "$ping_output" | grep 'rtt min/avg/max/mdev')
