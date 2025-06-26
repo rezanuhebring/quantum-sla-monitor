@@ -1,90 +1,86 @@
 #!/bin/bash
 
-# Revised script to set up the SLA Monitor Agent on a Linux system.
+# Revised script to completely uninstall the SLA Monitor Agent and its components.
 
 # --- Configuration Variables ---
-MONITOR_SCRIPT_NAME="monitor_internet.sh"
-AGENT_CONFIG_NAME="agent_config.env"
 MONITOR_SCRIPT_DIR="/opt/sla_monitor"
-MONITOR_SCRIPT_PATH="${MONITOR_SCRIPT_DIR}/${MONITOR_SCRIPT_NAME}"
-CONFIG_FILE_PATH="${MONITOR_SCRIPT_DIR}/${AGENT_CONFIG_NAME}"
 AGENT_LOG_FILE="/var/log/internet_sla_monitor_agent.log"
+CRON_FILE_NAME="sla-monitor-agent-cron"
+CRON_FILE_DEST="/etc/cron.d/${CRON_FILE_NAME}"
+OOKLA_REPO_FILE="/etc/apt/sources.list.d/ookla_speedtest-cli.list"
 
 # --- Helper Functions ---
 print_info() { echo -e "\033[0;32m[INFO]\033[0m $1"; }
 print_warn() { echo -e "\033[0;33m[WARN]\033[0m $1"; }
 print_error() { echo -e "\033[0;31m[ERROR]\033[0m $1" >&2; }
 
-# --- Main Setup Logic ---
-print_info "Starting SLA Monitor AGENT Setup (Linux)..."
+# --- Uninstallation Logic ---
+print_warn "This script will stop and remove all components of the SLA Monitor Agent."
+echo
 if [ "$(id -u)" -ne 0 ]; then print_error "This script must be run with sudo: sudo $0"; exit 1; fi
 
-# 1. Check for source files
-for file in "./${MONITOR_SCRIPT_NAME}" "./${AGENT_CONFIG_NAME}"; do
-    if [ ! -f "$file" ]; then print_error "Source file '$file' not found in current directory."; exit 1; fi
-done
-
-# 2. Install Dependencies
-print_info "Updating package list and installing dependencies..."
-sudo apt-get update -y || { print_error "Apt update failed."; exit 1; }
-sudo apt-get install -y curl jq bc iputils-ping dnsutils sqlite3 || { print_error "Core dependency installation failed."; exit 1; }
-
-# Install Speedtest CLI with fallback
-if curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | sudo bash; then
-    sudo apt-get install -y speedtest || { print_warn "Failed to install Ookla 'speedtest'. Trying community version..."; sudo apt-get install -y speedtest-cli || print_warn "No speedtest CLI could be installed."; }
+# 1. Remove the cron job to stop the script from running
+print_info "Removing agent cron job..."
+if [ -f "${CRON_FILE_DEST}" ]; then
+    sudo rm -f "${CRON_FILE_DEST}"
+    print_info "Cron job at ${CRON_FILE_DEST} removed."
 else
-    print_warn "Could not add Ookla repo. Trying community version...";
-    sudo apt-get install -y speedtest-cli || print_warn "No speedtest CLI could be installed."
+    print_warn "Cron job not found, nothing to remove."
 fi
+echo
 
-# Accept license terms for whichever speedtest was installed
-print_info "Attempting to accept Speedtest license terms..."
-if command -v speedtest &> /dev/null; then sudo speedtest --accept-license --accept-gdpr > /dev/null 2>&1; fi
-if command -v speedtest-cli &> /dev/null; then sudo speedtest-cli --accept-license --accept-gdpr > /dev/null 2>&1; fi
-
-# 3. Deploy Application Files Safely
-print_info "Creating script directory: ${MONITOR_SCRIPT_DIR}"
-sudo mkdir -p "${MONITOR_SCRIPT_DIR}"
-
-# Deploy config file ONLY if it doesn't already exist
-if [ ! -f "${CONFIG_FILE_PATH}" ]; then
-    print_info "Copying agent configuration template to ${CONFIG_FILE_PATH}"
-    sudo cp "./${AGENT_CONFIG_NAME}" "${CONFIG_FILE_PATH}"
-    sudo chown root:root "${CONFIG_FILE_PATH}"
-    sudo chmod 600 "${CONFIG_FILE_PATH}"
+# 2. NEW: Remove the Ookla Speedtest repository to fix 'apt update' issues
+print_info "Removing Ookla Speedtest repository source..."
+if [ -f "${OOKLA_REPO_FILE}" ]; then
+    sudo rm -f "${OOKLA_REPO_FILE}"
+    print_info "Repository file ${OOKLA_REPO_FILE} removed."
+    print_info "Running 'apt-get update' to refresh sources and confirm fix..."
+    sudo apt-get update
 else
-    print_warn "Config file ${CONFIG_FILE_PATH} already exists. Skipping copy to preserve user settings."
+    print_warn "Ookla repository file not found, nothing to remove."
 fi
+echo
 
-# Deploy monitor script
-print_info "Copying agent monitoring script to ${MONITOR_SCRIPT_PATH}"
-sudo cp "./${MONITOR_SCRIPT_NAME}" "${MONITOR_SCRIPT_PATH}"
-sudo chmod +x "${MONITOR_SCRIPT_PATH}"
-sudo chown root:root "${MONITOR_SCRIPT_PATH}"
+# 3. Ask for confirmation before deleting the script and config files
+print_warn "The next step will PERMANENTLY DELETE the script and its configuration."
+read -p "Are you sure you want to delete the directory at ${MONITOR_SCRIPT_DIR}? [y/N]: " confirm_delete_dir
 
-# 4. Set up Logging and Cron Job
-print_info "Setting up log file and cron job..."
-sudo touch "${AGENT_LOG_FILE}"
-sudo chown root:adm "${AGENT_LOG_FILE}"
-sudo chmod 640 "${AGENT_LOG_FILE}"
+if [[ "$confirm_delete_dir" == [yY] || "$confirm_delete_dir" == [yY][eE][sS] ]]; then
+    print_info "Deleting script directory: ${MONITOR_SCRIPT_DIR}"
+    if [ -d "${MONITOR_SCRIPT_DIR}" ]; then
+        sudo rm -rf "${MONITOR_SCRIPT_DIR}"
+        print_info "Script directory deleted successfully."
+    else
+        print_warn "Script directory not found, nothing to delete."
+    fi
+else
+    print_info "Skipping deletion of script directory."
+fi
+echo
 
-CRON_FILE_NAME="sla-monitor-agent-cron"
-CRON_FILE_DEST="/etc/cron.d/${CRON_FILE_NAME}"
-print_info "Creating cron job at ${CRON_FILE_DEST}"
-sudo cat <<EOF > "${CRON_FILE_DEST}"
-# SLA Monitor AGENT Cron Job
-SHELL=/bin/bash
-PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+# 4. Remove the log file
+print_info "Deleting log file: ${AGENT_LOG_FILE}"
+if [ -f "${AGENT_LOG_FILE}" ]; then
+    sudo rm -f "${AGENT_LOG_FILE}"
+    print_info "Log file removed."
+else
+    print_warn "Log file not found, nothing to remove."
+fi
+echo
 
-# Run the monitor script every 15 minutes
-*/15 * * * * root ${MONITOR_SCRIPT_PATH} >> ${AGENT_LOG_FILE} 2>&1
-EOF
-sudo chown root:root "${CRON_FILE_DEST}"
-sudo chmod 644 "${CRON_FILE_DEST}"
-print_info "Agent cron job created successfully."
+# 5. Ask for confirmation before uninstalling system packages
+print_warn "The agent installed system-wide packages: curl, jq, bc, speedtest, etc."
+print_warn "These may be used by other applications on your system."
+read -p "Would you like to UNINSTALL these dependencies? [y/N]: " confirm_uninstall_deps
 
-print_info "--------------------------------------------------------------------"
-print_info "SLA Monitor AGENT Setup finished."
-print_warn "IMPORTANT: Please customize ${CONFIG_FILE_PATH} with a unique"
-print_warn "AGENT_IDENTIFIER, AGENT_TYPE, and the CENTRAL_API_URL."
-print_info "--------------------------------------------------------------------"
+if [[ "$confirm_uninstall_deps" == [yY] || "$confirm_uninstall_deps" == [yY][eE][sS] ]]; then
+    print_info "Uninstalling dependencies..."
+    sudo apt-get purge -y curl jq bc iputils-ping dnsutils sqlite3 speedtest*
+    sudo apt-get autoremove -y
+    print_info "Dependencies have been uninstalled."
+else
+    print_info "Skipping uninstallation of dependencies."
+fi
+echo
+
+print_info "SLA Monitor Agent uninstallation script has finished."
