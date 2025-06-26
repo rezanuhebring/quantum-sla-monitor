@@ -86,7 +86,7 @@ print_info "Creating Docker build files..."
 mkdir -p ./${APACHE_CONFIG_DIR}
 print_info "Created directory for Apache config: ./${APACHE_CONFIG_DIR}"
 
-# *** THIS BLOCK IS NOW FIXED ***
+# The here-document block for Apache config
 tee "./${APACHE_CONFIG_DIR}/${APACHE_CONFIG_FILE}" > /dev/null <<'EOF_APACHE_CONF'
 <VirtualHost *:80>
     ServerAdmin webmaster@localhost
@@ -99,9 +99,10 @@ tee "./${APACHE_CONFIG_DIR}/${APACHE_CONFIG_FILE}" > /dev/null <<'EOF_APACHE_CON
     ErrorLog ${APACHE_LOG_DIR}/error.log
     CustomLog ${APACHE_LOG_DIR}/access.log combined
 </VirtualHost>
-EOF_APACHE_CONF>
+EOF_APACHE_CONF
 print_info "Created Apache config file: ./${APACHE_CONFIG_DIR}/${APACHE_CONFIG_FILE}"
 
+# The here-document block for the Dockerfile
 tee "./${DOCKERFILE_NAME}" > /dev/null <<'EOF_DOCKERFILE_CONTENT'
 # =========================================================================
 # STAGE 1: Builder
@@ -134,15 +135,15 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD curl -f http://lo
 EOF_DOCKERFILE_CONTENT
 print_info "Created new multi-stage Dockerfile: ./${DOCKERFILE_NAME}"
 
-# 4. Create docker-compose.yml in current directory (using absolute paths for volumes)
+# 4. Create docker-compose.yml in current directory
 print_info "Creating ${DOCKER_COMPOSE_FILE_NAME}..."
-tee "${DOCKER_COMPOSE_FILE_NAME}" > /dev/null <<EOF_DOCKER_COMPOSE_CONTENT
+tee "${DOCKER_COMPOSE_FILE_NAME}" > /dev/null <<'EOF_DOCKER_COMPOSE_CONTENT'
 version: '3.8'
 services:
   sla_monitor_central_app:
     build:
       context: .
-      dockerfile: ${DOCKERFILE_NAME}
+      dockerfile: Dockerfile
     container_name: sla_monitor_central_app
     restart: unless-stopped
     ports:
@@ -203,3 +204,4 @@ SERVER_IP=$(hostname -I | awk '{print $1}')
 print_info "CENTRAL Dashboard available at: http://${SERVER_IP:-<your_server_ip>}/"
 print_info "Setup finished."
 print_info "--------------------------------------------------------------------"
+```info "--------------------------------------------------------------------"
