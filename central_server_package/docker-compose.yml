@@ -3,32 +3,27 @@ version: '3.8'
 services:
   sla_monitor_central_app:
     build:
-      context: ./central_server_package 
+      # FIX 1: The build context should be the current directory ('.') where
+      # your Dockerfile and 'app' directory are located.
+      context: .
       dockerfile: Dockerfile
     container_name: sla_monitor_central_app
     restart: unless-stopped
     ports:
-      - "80:80" 
-      # - "443:443" # Uncomment when you set up SSL, likely via a reverse proxy
+      - "80:80"
+      - "443:443"
     volumes:
-      # Mount the directory for SQLite DB and general config (from host to container)
-      # Ensure these host paths exist or are created before first 'docker-compose up'
-      # The container will need appropriate permissions to write to these if it creates files.
-      # It's often best to initialize the DB and config on the host first.
-      - ./data/central_server_opt_sla_monitor:/opt/sla_monitor 
-      # Mount API log directory (PHP scripts need to be configured to log here, or log to stdout)
-      - ./logs/central_api:/var/log/sla_app_logs 
-      # Mount Apache logs from container to host for easier access
-      - ./logs/central_apache:/var/log/apache2
-    environment:
-      # Ensures Apache logs to stdout/stderr so `docker logs` can pick them up
-      APACHE_LOG_DIR: /var/log/apache2 
-      # You can pass other environment variables here if needed by your PHP scripts
-      # e.g., SQLITE_DB_PATH_IN_CONTAINER: /opt/sla_monitor/central_sla_data.sqlite
-      #      CONFIG_FILE_PATH_IN_CONTAINER: /opt/sla_monitor/sla_config.env
+      # FIX 2: Use the ABSOLUTE path from your setup script for the data volume.
+      # This ensures the container sees the database created by the setup script.
+      # HOST_PATH : CONTAINER_PATH
+      - /srv/sla_monitor/central_app_data/opt_sla_monitor:/opt/sla_monitor
 
-# Optional: Define named volumes if you prefer them over host bind mounts for data
-# volumes:
-#   central_opt_sla_monitor_data:
-#   central_api_logs_data:
-#   central_apache_logs_data:
+      # FIX 3: Mount the container's Apache log path to the host path from the setup script.
+      - /srv/sla_monitor/central_app_data/apache_logs:/var/log/apache2
+      
+      # FIX 3 (cont.): Mount the container's API log FILE to the host FILE from the setup script.
+      - /srv/sla_monitor/central_app_data/api_logs/sla_api.log:/var/log/sla_api.log
+
+    environment:
+      # This is correct. It tells the base php:apache image to forward logs.
+      APACHE_LOG_DIR: /var/log/apache2
