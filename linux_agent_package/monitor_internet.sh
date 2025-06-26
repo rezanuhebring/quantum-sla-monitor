@@ -1,6 +1,6 @@
 #!/bin/bash
 # SLA Monitor Agent Script
-# Final version with robust speedtest parsing and configuration validation.
+# FINAL VERSION - Includes fix for ping permissions when run by cron.
 
 # --- Source the local agent configuration file ---
 AGENT_CONFIG_FILE="/opt/sla_monitor/agent_config.env"
@@ -35,13 +35,12 @@ log_message() { echo "$(date '+%Y-%m-%d %H:%M:%S %Z'): [$AGENT_IDENTIFIER] $1" >
 # --- Initial Setup & Validation ---
 log_message "Starting SLA Monitor Agent Script. Type: $AGENT_TYPE"
 
-# *** CRITICAL: Add fatal error check for unconfigured script ***
 if [[ "$CENTRAL_API_URL" == *"YOUR_CENTRAL_SERVER_IP"* ]] || [ -z "$CENTRAL_API_URL" ]; then
-    log_message "FATAL: CENTRAL_API_URL is not configured in ${AGENT_CONFIG_FILE}. Please edit the file and set the correct IP address. Exiting."
+    log_message "FATAL: CENTRAL_API_URL is not configured in ${AGENT_CONFIG_FILE}. Exiting."
     exit 1
 fi
 if [[ "$AGENT_IDENTIFIER" == *"<UNIQUE_AGENT_ID>"* ]] || [ -z "$AGENT_IDENTIFIER" ]; then
-    log_message "FATAL: AGENT_IDENTIFIER is not configured in ${AGENT_CONFIG_FILE}. Please edit the file and set a unique ID. Exiting."
+    log_message "FATAL: AGENT_IDENTIFIER is not configured in ${AGENT_CONFIG_FILE}. Exiting."
     exit 1
 fi
 
@@ -68,7 +67,8 @@ if [ "$ENABLE_PING" = true ]; then
     
     total_rtt_sum=0.0; total_loss_sum=0; total_jitter_sum=0.0; ping_targets_up=0
     for host in "${PING_HOSTS[@]}"; do
-        ping_output=$(ping ${ping_interface_arg} -c "$PING_COUNT" -W "$PING_TIMEOUT" -q "$host" 2>&1)
+        # *** FIX: Use 'sudo' to ensure ping has necessary privileges ***
+        ping_output=$(sudo ping ${ping_interface_arg} -c "$PING_COUNT" -W "$PING_TIMEOUT" -q "$host" 2>&1)
         if [ $? -eq 0 ]; then
             packet_loss=$(echo "$ping_output" | grep -oP '\d+(?=% packet loss)')
             rtt_line=$(echo "$ping_output" | grep 'rtt min/avg/max/mdev')
@@ -147,7 +147,6 @@ if [ "$ENABLE_SPEEDTEST" = true ]; then
         speedtest_json_output=$(timeout 120s $SPEEDTEST_COMMAND_PATH $SPEEDTEST_ARGS $speedtest_interface_arg)
         
         if [ $? -eq 0 ] && echo "$speedtest_json_output" | jq -e . > /dev/null 2>&1; then
-            # Robustly check for Ookla format (nested) first
             if echo "$speedtest_json_output" | jq -e '.download.bandwidth' > /dev/null 2>&1; then
                 log_message "Parsing speedtest output as Ookla JSON format."
                 dl_bytes_per_sec=$(echo "$speedtest_json_output" | jq -r '.download.bandwidth // 0')
@@ -157,7 +156,6 @@ if [ "$ENABLE_SPEEDTEST" = true ]; then
                 results_map[st_ping]=$(echo "$speedtest_json_output" | jq -r '.ping.latency // "null"')
                 results_map[st_jitter]=$(echo "$speedtest_json_output" | jq -r '.ping.jitter // "null"')
                 results_map[st_status]="COMPLETED"
-            # Fallback to check for community format (flat)
             elif echo "$speedtest_json_output" | jq -e '.download' > /dev/null 2>&1; then
                 log_message "Parsing speedtest output as community speedtest-cli JSON format."
                 st_dl_bps=$(echo "$speedtest_json_output" | jq -r '.download // 0');
@@ -165,7 +163,7 @@ if [ "$ENABLE_SPEEDTEST" = true ]; then
                 results_map[st_dl]=$(awk "BEGIN {printf \"%.2f\", $st_dl_bps / 1000000}")
                 results_map[st_ul]=$(awk "BEGIN {printf \"%.2f\", $st_ul_bps / 1000000}")
                 results_map[st_ping]=$(echo "$speedtest_json_output" | jq -r '.ping // "null"')
-                results_map[st_jitter]="null" # Community version doesn't provide jitter
+                results_map[st_jitter]="null"
                 results_map[st_status]="COMPLETED"
             else
                 log_message "Speedtest FAILED: JSON format not recognized."
@@ -183,7 +181,6 @@ fi
 
 # --- Construct Final JSON Payload ---
 log_message "Constructing final JSON payload..."
-# Note: tonumber? // null is a jq trick to safely convert to number or return null
 payload=$(jq -n \
     --arg     timestamp             "$LOG_DATE" \
     --arg     agent_identifier      "$AGENT_IDENTIFIER" \
@@ -197,7 +194,6 @@ payload=$(jq -n \
     '$ARGS.named'
 )
 
-# Validate payload
 if ! echo "$payload" | jq . > /dev/null; then
     log_message "FATAL: Agent failed to generate valid final JSON. Aborting submission."
     exit 1
