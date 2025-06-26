@@ -15,6 +15,9 @@
         .isp-selector-container label { margin-right: 8px; font-weight: 500; }
         .isp-selector-container select { padding: 8px 12px; border-radius: 4px; border: 1px solid #ccc; font-size: 1em; min-width: 300px; background-color: #fff; }
         .timestamp { font-size: 0.9em; color: #555; }
+        .download-button-container { text-align: center; margin-bottom: 20px; } 
+        .download-button { display: inline-block; padding: 10px 20px; font-size: 1em; font-weight: bold; color: #fff; background-color: #007bff; border: none; border-radius: 5px; text-decoration: none; cursor: pointer;} 
+        .download-button:hover { background-color: #0056b3; }
         .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
         .metric-card { background-color: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #e0e0e0; }
         .metric-card h3 { margin-top: 0; color: #3f51b5; border-bottom: 1px solid #e0e0e0; padding-bottom: 10px; font-size: 1.2em; }
@@ -48,6 +51,13 @@
         
         <div id="dashboard-content" class="hidden">
             <h2 id="agent-name-header"></h2>
+            
+            <!-- *** FIXED: The download button is restored here *** -->
+            <div class="download-button-container">
+                <a id="individual-csv-download" href="#" class="download-button">
+                    <span role="img" aria-label="floppy disk">💾</span> Download Agent Data (CSV)
+                </a>
+            </div>
             
             <div class="grid-container">
                 <div class="metric-card">
@@ -88,7 +98,7 @@
     </div>
 
     <script>
-        // --- REWRITTEN AND SIMPLIFIED JAVASCRIPT LOGIC ---
+        // The JavaScript logic remains the same as the previous correct version.
         const API_URL = 'get_sla_stats.php';
         let rttChartInstance = null;
         let speedChartInstance = null;
@@ -98,9 +108,6 @@
         const profileSelector = document.getElementById('isp-profile-selector');
         const dashboardContent = document.getElementById('dashboard-content');
 
-        /**
-         * The main function to fetch data and update the entire UI.
-         */
         async function fetchAndUpdateDashboard(agentId = null) {
             loader.style.display = 'block';
             dashboardContent.classList.add('hidden');
@@ -118,7 +125,6 @@
 
                 updateDashboard(data);
 
-                // Reset or set the refresh timer
                 if (refreshIntervalTimer) clearInterval(refreshIntervalTimer);
                 const refreshMs = data.dashboard_refresh_interval_ms || 60000;
                 refreshIntervalTimer = setInterval(() => fetchAndUpdateDashboard(profileSelector.value), refreshMs);
@@ -131,9 +137,6 @@
             }
         }
 
-        /**
-         * Takes the complete data object from the API and updates all UI components.
-         */
         function updateDashboard(data) {
             updateProfileSelector(data.isp_profiles, data.current_isp_profile_id);
 
@@ -146,15 +149,12 @@
             dashboardContent.classList.remove('hidden');
         }
 
-        /**
-         * Populates the agent profile selector dropdown.
-         */
         function updateProfileSelector(profiles, selectedId) {
             if (!profiles || profileSelector.getAttribute('data-populated')) {
                  profileSelector.value = selectedId;
                  return;
             }
-            profileSelector.innerHTML = ''; // Clear existing options
+            profileSelector.innerHTML = '';
             if (profiles.length === 0) {
                  profileSelector.innerHTML = '<option value="">No Agents Found</option>';
                  return;
@@ -176,15 +176,11 @@
             el.textContent = `${displayValue}${displayValue !== 'N/A' && unit ? ` ${unit}` : ''}`;
         }
         
-        /**
-         * Populates all components of the individual agent detail view.
-         */
         function updateDetailView(data) {
             const latest = data.latest_check;
             
             setText('last-checked', latest ? `Last Agent Check: ${new Date(latest.timestamp).toLocaleString()}` : 'No recent data for this agent.');
 
-            // Populate Live Status Cards
             setText('ping-status', latest?.overall_connectivity, '');
             setText('ping-rtt', latest?.avg_rtt_ms, 'ms');
             setText('ping-loss', latest?.avg_loss_percent, '%');
@@ -195,7 +191,6 @@
             setText('speed-ul', latest?.speedtest_upload_mbps, 'Mbps');
             setText('speed-ping', latest?.speedtest_ping_ms, 'ms');
 
-            // Populate Historical SLA Section
             const slaContainer = document.getElementById('historical-sla-data');
             slaContainer.innerHTML = `<h3>SLA (Target: ${data.target_sla_percentage}%)</h3>`;
             if (Object.keys(data.periods).length > 0) {
@@ -211,23 +206,27 @@
             } else {
                 slaContainer.innerHTML += '<p>No historical data available.</p>';
             }
+            
+            // NOTE: The download button's link is currently static (#).
+            // A future improvement would be a generate_csv.php script.
+            const downloadLink = document.getElementById('individual-csv-download');
+            downloadLink.href = `generate_csv.php?isp_id=${data.current_isp_profile_id}`; // Example link
+            downloadLink.setAttribute('download', `sla_history_${data.current_isp_name.replace(/[^a-z0-9]/gi, '_')}.csv`);
 
-            // Render Charts
             renderRttChart(data.rtt_chart_data);
             renderSpeedTestChart(data.speed_chart_data);
         }
         
         function renderRttChart(data) {
             const ctx = document.getElementById('rttChart').getContext('2d');
-            const labels = data.map(d => new Date(d.timestamp));
             if (rttChartInstance) rttChartInstance.destroy();
             rttChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: labels,
+                    labels: data.map(d => new Date(d.timestamp)),
                     datasets: [
-                        { label: 'Avg RTT (ms)', data: data.map(d => d.avg_rtt_ms), borderColor: 'rgb(54, 162, 235)', yAxisID: 'y', tension: 0.1 },
-                        { label: 'Avg Jitter (ms)', data: data.map(d => d.avg_jitter_ms), borderColor: 'rgb(255, 159, 64)', yAxisID: 'y', tension: 0.1, hidden: true },
+                        { label: 'Avg RTT (ms)', data: data.map(d => d.avg_rtt_ms), borderColor: 'rgb(54, 162, 235)', yAxisID: 'y' },
+                        { label: 'Avg Jitter (ms)', data: data.map(d => d.avg_jitter_ms), borderColor: 'rgb(255, 159, 64)', yAxisID: 'y', hidden: true },
                         { label: 'Packet Loss (%)', data: data.map(d => d.avg_loss_percent), borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.2)', type: 'bar', yAxisID: 'y1' }
                     ]
                 },
@@ -237,22 +236,20 @@
         
         function renderSpeedTestChart(data) {
             const ctx = document.getElementById('speedTestChart').getContext('2d');
-            const labels = data.map(d => new Date(d.timestamp));
             if (speedChartInstance) speedChartInstance.destroy();
             speedChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: labels,
+                    labels: data.map(d => new Date(d.timestamp)),
                     datasets: [
-                        { label: 'Download (Mbps)', data: data.map(d => d.speedtest_download_mbps), borderColor: 'rgb(75, 192, 192)', tension: 0.1 },
-                        { label: 'Upload (Mbps)', data: data.map(d => d.speedtest_upload_mbps), borderColor: 'rgb(153, 102, 255)', tension: 0.1 }
+                        { label: 'Download (Mbps)', data: data.map(d => d.speedtest_download_mbps), borderColor: 'rgb(75, 192, 192)' },
+                        { label: 'Upload (Mbps)', data: data.map(d => d.speedtest_upload_mbps), borderColor: 'rgb(153, 102, 255)' }
                     ]
                 },
                 options: { maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'PPpp' } }, y: { beginAtZero: true, title: { display: true, text: 'Mbps' } } } }
             });
         }
         
-        // --- Event Listeners & Initial Load ---
         profileSelector.addEventListener('change', (event) => {
             const selectedId = event.target.value;
             history.pushState({ agent_id: selectedId }, '', `?isp_id=${selectedId}`);
