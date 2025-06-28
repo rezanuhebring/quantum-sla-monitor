@@ -161,7 +161,7 @@
         function setText(id, value, unit = '') {
             const el = document.getElementById(id);
             if (!el) return;
-            const displayValue = (value !== null && value !== undefined && String(value) !== '') ? String(value) : 'N/A';
+            const displayValue = (value !== null && value !== undefined && String(value).trim() !== '') ? String(value) : 'N/A';
             el.textContent = `${displayValue}${displayValue !== 'N/A' && unit ? ` ${unit}` : ''}`;
         }
         
@@ -170,7 +170,6 @@
             
             setText('last-checked', latest ? `Last Agent Check: ${new Date(latest.timestamp).toLocaleString()}` : 'No recent data for this agent.');
 
-            // *** FIX IS HERE: Added the missing line for ping-jitter ***
             setText('ping-status', latest?.overall_connectivity, '');
             setText('ping-rtt', latest?.avg_rtt_ms, 'ms');
             setText('ping-loss', latest?.avg_loss_percent, '%');
@@ -183,7 +182,7 @@
 
             const slaContainer = document.getElementById('historical-sla-data');
             slaContainer.innerHTML = `<h3>SLA (Target: ${data.target_sla_percentage}%)</h3>`;
-            if (Object.keys(data.periods).length > 0) {
+            if (data.periods && Object.keys(data.periods).length > 0) {
                 for (const key in data.periods) {
                     const period = data.periods[key];
                     const itemDiv = document.createElement('div');
@@ -204,17 +203,28 @@
         function renderRttChart(data) {
             const ctx = document.getElementById('rttChart').getContext('2d');
             if (rttChartInstance) rttChartInstance.destroy();
+            
             rttChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: data.map(d => new Date(d.timestamp)),
                     datasets: [
                         { label: 'Avg RTT (ms)', data: data.map(d => d.avg_rtt_ms), borderColor: 'rgb(54, 162, 235)', yAxisID: 'y' },
-                        { label: 'Avg Jitter (ms)', data: data.map(d => d.avg_jitter_ms), borderColor: 'rgb(255, 159, 64)', yAxisID: 'y', hidden: true },
+                        // *** FIX: Jitter is now visible on its own axis ***
+                        { label: 'Avg Jitter (ms)', data: data.map(d => d.avg_jitter_ms), borderColor: 'rgb(255, 159, 64)', yAxisID: 'y2' },
                         { label: 'Packet Loss (%)', data: data.map(d => d.avg_loss_percent), borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.2)', type: 'bar', yAxisID: 'y1' }
                     ]
                 },
-                options: { maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'PPpp' } }, y: { beginAtZero: true, position: 'left', title: { display: true, text: 'ms' } }, y1: { type: 'linear', display: true, position: 'right', beginAtZero: true, max: 100, title: { display: true, text: '% Loss' }, grid: { drawOnChartArea: false } } } }
+                options: {
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'PPpp' } },
+                        y: { type: 'linear', display: true, position: 'left', beginAtZero: true, title: { display: true, text: 'RTT (ms)' } },
+                        y1: { type: 'linear', display: true, position: 'right', beginAtZero: true, max: 100, title: { display: true, text: '% Loss' }, grid: { drawOnChartArea: false } },
+                        // *** FIX: Define the new y2 axis for jitter ***
+                        y2: { type: 'linear', display: true, position: 'right', beginAtZero: true, title: { display: true, text: 'Jitter (ms)' }, grid: { drawOnChartArea: false } }
+                    }
+                }
             });
         }
         
@@ -234,9 +244,11 @@
             });
         }
         
+        // --- Event Listeners & Initial Load ---
         profileSelector.addEventListener('change', (event) => {
             const selectedId = event.target.value;
-            history.pushState({ agent_id: selectedId }, '', `?isp_id=${selectedId}`);
+            // Use replaceState to avoid cluttering browser history on every click
+            history.replaceState({ agent_id: selectedId }, '', `?isp_id=${selectedId}`);
             fetchAndUpdateDashboard(selectedId);
         });
 
