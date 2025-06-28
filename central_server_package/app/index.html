@@ -7,81 +7,86 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background-color: #f0f2f5; color: #333; }
-        .dashboard-container { max-width: 1300px; margin: 0 auto; background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        h1, h2 { color: #1a237e; text-align: center; }
-        h1 { font-size: 2em; } h2 { font-size: 1.6em; margin-top: 30px; margin-bottom: 20px;}
-        .top-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #eee; flex-wrap: wrap; gap: 15px; }
+        :root { --bg-color: #f0f2f5; --card-bg: #ffffff; --text-color: #333; --header-color: #1a237e; --border-color: #e0e0e0; --link-color: #007bff; --shadow-color: rgba(0,0,0,0.1); --green: #28a745; --red: #dc3545; --grey: #6c757d;}
+        .dark-mode { --bg-color: #121212; --card-bg: #1e1e1e; --text-color: #e0e0e0; --header-color: #bb86fc; --border-color: #444; --link-color: #bb86fc; --shadow-color: rgba(0,0,0,0.4); }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background-color: var(--bg-color); color: var(--text-color); transition: background-color 0.3s, color 0.3s; }
+        .dashboard-container { max-width: 1400px; margin: 0 auto; background-color: var(--card-bg); padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px var(--shadow-color); transition: background-color 0.3s; }
+        h1, h2 { color: var(--header-color); text-align: center; }
+        h1 { font-size: 2em; } h2 { font-size: 1.5em; margin-top: 30px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; }
+        .top-bar { display: flex; justify-content: space-between; align-items: center; }
+        .top-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--border-color); flex-wrap: wrap; gap: 15px; }
         .isp-selector-container label { margin-right: 8px; font-weight: 500; }
-        .isp-selector-container select { padding: 8px 12px; border-radius: 4px; border: 1px solid #ccc; font-size: 1em; min-width: 300px; background-color: #fff; }
-        .timestamp { font-size: 0.9em; color: #555; }
-        .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
-        .metric-card { background-color: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #e0e0e0; }
-        .metric-card h3 { margin-top: 0; color: #3f51b5; border-bottom: 1px solid #e0e0e0; padding-bottom: 10px; font-size: 1.2em; }
-        .metric-card p { margin: 10px 0; font-size: 1em; line-height: 1.5; display: flex; justify-content: space-between; }
-        .metric-card strong { font-weight: 600; }
-        .chart-container { width: 100%; height: 320px; margin-top: 20px; }
-        .sla-period-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed #e0e0e0; }
-        .sla-period-item:last-child { border-bottom: none; }
-        .sla-period-label { font-weight: 500; }
-        .sla-percentage { font-weight: bold; font-size: 1.2em; }
-        .sla-percentage.met { color: #28a745; }
-        .sla-percentage.not-met { color: #dc3545; }
-        .sla-details { font-size: 0.9em; color: #6c757d; }
+        .isp-selector-container select { padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-color); font-size: 1em; min-width: 300px; background-color: var(--card-bg); color: var(--text-color); }
+        .timestamp { font-size: 0.9em; }
+        .theme-switcher { display: flex; align-items: center; cursor: pointer; } .theme-switcher-label { margin-right: 8px; font-weight: 500;}
+        .switch { position: relative; display: inline-block; width: 44px; height: 24px; } .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 24px; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #6200ea; } input:checked + .slider:before { transform: translateX(20px); }
+        .agent-lists-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 30px; }
+        .agent-list { list-style-type: none; padding: 0; }
+        .agent-list li { background-color: var(--bg-color); margin-bottom: 10px; padding: 15px; border-radius: 6px; border-left: 5px solid var(--grey); transition: transform 0.2s, box-shadow 0.2s; }
+        .agent-list li.status-up { border-left-color: var(--green); } .agent-list li.status-down { border-left-color: var(--red); }
+        .agent-list li:hover { transform: translateY(-2px); box-shadow: 0 6px 15px var(--shadow-color); }
+        .agent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .agent-name { font-weight: bold; font-size: 1.1em; color: var(--link-color); text-decoration: none; cursor: pointer; } .agent-name:hover { text-decoration: underline; }
+        .status-dot { height: 12px; width: 12px; background-color: var(--grey); border-radius: 50%; display: inline-block; }
+        .status-dot.up { background-color: var(--green); } .status-dot.down { background-color: var(--red); }
+        .agent-metrics { font-size: 0.9em; display: flex; justify-content: space-between; flex-wrap: wrap; }
+        .agent-metrics span { margin-right: 15px; opacity: 0.9; }
         .hidden { display: none !important; }
-        .loader { border: 5px solid #e0e0e0; border-top: 5px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 50px auto; }
+        .loader { border: 5px solid #444; border-top: 5px solid #bb86fc; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 50px auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; }
+        .metric-card { background-color: var(--bg-color); padding: 20px; border-radius: 8px; border: 1px solid var(--border-color); }
+        .metric-card h3 { margin-top: 0; color: var(--header-color); border-bottom: 1px solid var(--border-color); padding-bottom: 10px; font-size: 1.2em; }
+        .metric-card p { margin: 10px 0; font-size: 1em; line-height: 1.5; display: flex; justify-content: space-between; } .metric-card strong { font-weight: 600; }
+        .chart-container { width: 100%; height: 320px; margin-top: 20px; }
+        .sla-period-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed var(--border-color); }
+        .sla-period-item:last-child { border-bottom: none; }
+        .sla-period-label { font-weight: 500; } .sla-percentage { font-weight: bold; font-size: 1.2em; }
+        .sla-percentage.met { color: var(--green); } .sla-percentage.not-met { color: var(--red); }
+        .sla-details { font-size: 0.9em; opacity: 0.7; }
     </style>
 </head>
 <body>
     <div class="dashboard-container">
-        <h1>Internet Performance Monitor</h1>
+        <div class="top-bar">
+            <h1>Internet Performance Monitor</h1>
+            <div class="theme-switcher">
+                <span class="theme-switcher-label">Dark Mode</span>
+                <label class="switch"><input type="checkbox" id="theme-toggle"><span class="slider"></span></label>
+            </div>
+        </div>
         <div class="top-info">
             <div class="isp-selector-container">
-                <label for="isp-profile-selector">View Agent Profile:</label>
-                <select id="isp-profile-selector"><option value="">Loading Agents...</option></select>
+                <label for="isp-profile-selector">View Specific Agent:</label>
+                <select id="isp-profile-selector"><option value="">-- Show All Agents Summary --</option></select>
             </div>
-            <div id="last-checked" class="timestamp">Last Agent Check: Loading...</div>
+            <div id="last-checked" class="timestamp">Last Update: Loading...</div>
         </div>
 
         <div id="loader" class="loader"></div>
         
         <div id="dashboard-content" class="hidden">
-            <h2 id="agent-name-header"></h2>
-            
-            <div class="grid-container">
-                <div class="metric-card">
-                    <h3><span role="img" aria-label="signal">📶</span> Ping & Connectivity</h3>
-                    <p><span>Overall Status:</span> <strong id="ping-status">N/A</strong></p>
-                    <p><span>Average RTT:</span> <strong id="ping-rtt">N/A</strong></p>
-                    <p><span>Average Loss:</span> <strong id="ping-loss">N/A</strong></p>
-                    <p><span>Average Jitter:</span> <strong id="ping-jitter">N/A</strong></p>
-                </div>
-                <div class="metric-card">
-                    <h3><span role="img" aria-label="gauge">💨</span> Speed Test</h3>
-                    <p><span>Status:</span> <strong id="speed-status">N/A</strong></p>
-                    <p><span>Download:</span> <strong id="speed-dl">N/A</strong></p>
-                    <p><span>Upload:</span> <strong id="speed-ul">N/A</strong></p>
-                    <p><span>Ping (Speedtest):</span> <strong id="speed-ping">N/A</strong></p>
-                </div>
-                <div class="metric-card">
-                    <h3><span role="img" aria-label="target">🎯</span> Service Level Agreement</h3>
-                    <div id="historical-sla-data"></div>
+            <!-- Summary View -->
+            <div id="summary-view">
+                <div class="agent-lists-container">
+                    <div class="agent-list-section"><h2>SLA ISP Summary</h2><ul id="isp-agent-list" class="agent-list"></ul></div>
+                    <div class="agent-list-section"><h2>SLA Client Summary</h2><ul id="client-agent-list" class="agent-list"></ul></div>
                 </div>
             </div>
-
-            <div class="grid-container" style="margin-top: 20px;">
-                <div class="metric-card">
-                    <h3>RTT, Jitter & Loss (%)</h3>
-                    <div class="chart-container">
-                        <canvas id="rttChart"></canvas>
-                    </div>
+            <!-- Detail View -->
+            <div id="detail-view" class="hidden">
+                <h2 id="agent-name-header"></h2>
+                 <div class="grid-container">
+                    <div class="metric-card"><h3><span role="img" aria-label="signal">📶</span> Ping & Connectivity</h3><p><span>Overall Status:</span> <strong id="ping-status">N/A</strong></p><p><span>Average RTT:</span> <strong id="ping-rtt">N/A</strong></p><p><span>Average Loss:</span> <strong id="ping-loss">N/A</strong></p><p><span>Average Jitter:</span> <strong id="ping-jitter">N/A</strong></p></div>
+                    <div class="metric-card"><h3><span role="img" aria-label="gauge">💨</span> Speed Test</h3><p><span>Status:</span> <strong id="speed-status">N/A</strong></p><p><span>Download:</span> <strong id="speed-dl">N/A</strong></p><p><span>Upload:</span> <strong id="speed-ul">N/A</strong></p><p><span>Ping (Speedtest):</span> <strong id="speed-ping">N/A</strong></p></div>
+                    <div class="metric-card"><h3><span role="img" aria-label="target">🎯</span> Service Level Agreement</h3><div id="historical-sla-data"></div></div>
                 </div>
-                <div class="metric-card">
-                    <h3>Download & Upload Speed (Mbps)</h3>
-                    <div class="chart-container">
-                        <canvas id="speedTestChart"></canvas>
-                    </div>
+                <div class="grid-container" style="margin-top: 20px;">
+                    <div class="metric-card"><h3>RTT, Jitter & Loss (%)</h3><div class="chart-container"><canvas id="rttChart"></canvas></div></div>
+                    <div class="metric-card"><h3>Download & Upload Speed (Mbps)</h3><div class="chart-container"><canvas id="speedTestChart"></canvas></div></div>
                 </div>
             </div>
         </div>
@@ -89,96 +94,111 @@
 
     <script>
         const API_URL = 'get_sla_stats.php';
-        let rttChartInstance = null;
-        let speedChartInstance = null;
-        let refreshIntervalTimer = null;
+        let rttChart = null, speedChart = null, refreshIntervalTimer = null;
 
         const loader = document.getElementById('loader');
         const profileSelector = document.getElementById('isp-profile-selector');
         const dashboardContent = document.getElementById('dashboard-content');
+        const summaryView = document.getElementById('summary-view');
+        const detailView = document.getElementById('detail-view');
+        const themeToggle = document.getElementById('theme-toggle');
 
+        function setText(id, value, unit = '') { const el = document.getElementById(id); if (el) el.textContent = (value !== null && value !== undefined && String(value).trim() !== '') ? `${String(value)}${unit}` : 'N/A'; }
+        
         async function fetchAndUpdateDashboard(agentId = null) {
             loader.style.display = 'block';
             dashboardContent.classList.add('hidden');
-            
             let url = `${API_URL}?_=${new Date().getTime()}`;
-            if (agentId) {
-                url += `&isp_id=${agentId}`;
-            }
+            if (agentId) url += `&isp_id=${agentId}`;
 
             try {
                 const response = await fetch(url);
                 if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
                 const data = await response.json();
                 if (data.error) throw new Error(data.message || 'API returned an error.');
-
-                updateDashboard(data);
+                
+                updateDashboardUI(data, agentId);
 
                 if (refreshIntervalTimer) clearInterval(refreshIntervalTimer);
                 const refreshMs = data.dashboard_refresh_interval_ms || 60000;
                 refreshIntervalTimer = setInterval(() => fetchAndUpdateDashboard(profileSelector.value), refreshMs);
-
             } catch (error) {
-                console.error("Failed to fetch or render dashboard data:", error);
-                document.body.innerHTML = `<div style="text-align:center;padding:50px;"><h1>Error</h1><p>Could not load dashboard data. Please check the server logs and browser console.</p><pre>${error.message}</pre></div>`;
+                console.error("Failed to render dashboard data:", error);
+                document.body.innerHTML = `<div style="text-align:center;padding:50px; color: var(--text-color);"><h1>Error</h1><p>Could not load dashboard data.</p><pre>${error.message}</pre></div>`;
             } finally {
                 loader.style.display = 'none';
             }
         }
 
-        function updateDashboard(data) {
-            updateProfileSelector(data.isp_profiles, data.current_isp_profile_id);
+        function updateDashboardUI(data, agentId) {
+            updateProfileSelector(data.isp_profiles, agentId);
+            setText('last-checked', new Date().toLocaleString());
 
-            if (data.current_isp_profile_id === null) {
-                document.getElementById('agent-name-header').textContent = "No active agent found. Please configure an agent.";
-            } else {
-                document.getElementById('agent-name-header').textContent = `${data.current_isp_name} - Live Status & Trends`;
+            if (agentId) {
+                summaryView.classList.add('hidden');
+                detailView.classList.remove('hidden');
                 updateDetailView(data);
+            } else {
+                summaryView.classList.remove('hidden');
+                detailView.classList.add('hidden');
+                updateSummaryView(data);
             }
             dashboardContent.classList.remove('hidden');
         }
 
         function updateProfileSelector(profiles, selectedId) {
             if (!profiles || profileSelector.getAttribute('data-populated')) {
-                 profileSelector.value = selectedId;
-                 return;
+                profileSelector.value = selectedId || ""; return;
             }
-            profileSelector.innerHTML = '';
-            if (profiles.length === 0) {
-                 profileSelector.innerHTML = '<option value="">No Agents Found</option>';
-                 return;
-            }
+            profileSelector.innerHTML = '<option value="">-- Show All Agents Summary --</option>';
             profiles.forEach(profile => {
                 const option = document.createElement('option');
                 option.value = profile.id;
-                option.textContent = `${profile.agent_name} (${profile.agent_type}) ${profile.is_active ? '' : '(Inactive)'}`;
-                option.selected = profile.id == selectedId;
+                option.textContent = `${profile.agent_name} (${profile.agent_identifier}) ${profile.is_active ? '' : '(Inactive)'}`;
                 profileSelector.appendChild(option);
             });
+            profileSelector.value = selectedId || "";
             profileSelector.setAttribute('data-populated', 'true');
         }
 
-        function setText(id, value, unit = '') {
-            const el = document.getElementById(id);
-            if (!el) return;
-            const displayValue = (value !== null && value !== undefined && String(value).trim() !== '') ? String(value) : 'N/A';
-            el.textContent = `${displayValue}${displayValue !== 'N/A' && unit ? ` ${unit}` : ''}`;
+        function updateSummaryView(data) {
+            const ispList = document.getElementById('isp-agent-list');
+            const clientList = document.getElementById('client-agent-list');
+            ispList.innerHTML = ''; clientList.innerHTML = '';
+            
+            data.isp_profiles.forEach(profile => {
+                if (!profile.is_active) return;
+                
+                const status = data.all_agent_status[profile.id];
+                const statusClass = status?.overall_connectivity?.toLowerCase() || 'unknown';
+                const rtt = status?.avg_rtt_ms !== null ? `${status.avg_rtt_ms}ms` : 'N/A';
+                const loss = status?.avg_loss_percent !== null ? `${status.avg_loss_percent}%` : 'N/A';
+
+                const li = document.createElement('li');
+                li.className = `status-${statusClass}`;
+                li.innerHTML = `<div class="agent-header"><a href="#" class="agent-name" data-id="${profile.id}">${profile.agent_name}</a><span class="status-dot ${statusClass}"></span></div><div class="agent-metrics"><span>RTT: <strong>${rtt}</strong></span><span>Loss: <strong>${loss}</strong></span><span style="font-size:0.8em; opacity:0.7;">Last Check: ${status ? new Date(status.timestamp).toLocaleTimeString() : 'N/A'}</span></div>`;
+                
+                if (profile.agent_type === 'ISP') ispList.appendChild(li);
+                else clientList.appendChild(li);
+            });
+
+            if(ispList.children.length === 0) ispList.innerHTML = '<li>No active ISP agents found.</li>';
+            if(clientList.children.length === 0) clientList.innerHTML = '<li>No active Client agents found.</li>';
         }
-        
+
         function updateDetailView(data) {
+            setText('agent-name-header', data.current_isp_name);
             const latest = data.latest_check;
             
-            setText('last-checked', latest ? `Last Agent Check: ${new Date(latest.timestamp).toLocaleString()}` : 'No recent data for this agent.');
+            setText('ping-status', latest?.overall_connectivity);
+            setText('ping-rtt', latest?.avg_rtt_ms, ' ms');
+            setText('ping-loss', latest?.avg_loss_percent, ' %');
+            setText('ping-jitter', latest?.avg_jitter_ms, ' ms');
 
-            setText('ping-status', latest?.overall_connectivity, '');
-            setText('ping-rtt', latest?.avg_rtt_ms, 'ms');
-            setText('ping-loss', latest?.avg_loss_percent, '%');
-            setText('ping-jitter', latest?.avg_jitter_ms, 'ms');
-
-            setText('speed-status', latest?.speedtest_status, '');
-            setText('speed-dl', latest?.speedtest_download_mbps, 'Mbps');
-            setText('speed-ul', latest?.speedtest_upload_mbps, 'Mbps');
-            setText('speed-ping', latest?.speedtest_ping_ms, 'ms');
+            setText('speed-status', latest?.speedtest_status);
+            setText('speed-dl', latest?.speedtest_download_mbps, ' Mbps');
+            setText('speed-ul', latest?.speedtest_upload_mbps, ' Mbps');
+            setText('speed-ping', latest?.speedtest_ping_ms, ' ms');
 
             const slaContainer = document.getElementById('historical-sla-data');
             slaContainer.innerHTML = `<h3>SLA (Target: ${data.target_sla_percentage}%)</h3>`;
@@ -187,9 +207,7 @@
                     const period = data.periods[key];
                     const itemDiv = document.createElement('div');
                     itemDiv.className = 'sla-period-item';
-                    itemDiv.innerHTML = `<span class="sla-period-label">${period.label}:</span>
-                                         <span class="sla-percentage ${period.is_target_met ? 'met' : 'not-met'}">${period.achieved_percentage}%</span>
-                                         <span class="sla-details">(${period.met_intervals} of ${period.total_intervals} intervals met)</span>`;
+                    itemDiv.innerHTML = `<span class="sla-period-label">${period.label}:</span><span class="sla-percentage ${period.is_target_met ? 'met' : 'not-met'}">${period.achieved_percentage}%</span><span class="sla-details">(${period.met_intervals} of ${period.total_intervals} met)</span>`;
                     slaContainer.appendChild(itemDiv);
                 }
             } else {
@@ -203,63 +221,53 @@
         function renderRttChart(data) {
             const ctx = document.getElementById('rttChart').getContext('2d');
             if (rttChartInstance) rttChartInstance.destroy();
+            const isDark = document.body.classList.contains('dark-mode');
+            const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+            const fontColor = isDark ? '#e0e0e0' : '#333';
             
             rttChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: data.map(d => new Date(d.timestamp)),
                     datasets: [
-                        { label: 'Avg RTT (ms)', data: data.map(d => d.avg_rtt_ms), borderColor: 'rgb(54, 162, 235)', yAxisID: 'y' },
-                        // *** FIX: Jitter is now visible on its own axis ***
-                        { label: 'Avg Jitter (ms)', data: data.map(d => d.avg_jitter_ms), borderColor: 'rgb(255, 159, 64)', yAxisID: 'y2' },
-                        { label: 'Packet Loss (%)', data: data.map(d => d.avg_loss_percent), borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.2)', type: 'bar', yAxisID: 'y1' }
+                        { label: 'Avg RTT (ms)', data: data.map(d => d.avg_rtt_ms), borderColor: 'rgb(54, 162, 235)', backgroundColor: 'rgba(54, 162, 235, 0.2)', yAxisID: 'y', tension: 0.4, fill: true },
+                        { label: 'Avg Jitter (ms)', data: data.map(d => d.avg_jitter_ms), borderColor: 'rgb(255, 159, 64)', backgroundColor: 'rgba(255, 159, 64, 0.2)', yAxisID: 'y2', tension: 0.4, fill: true},
+                        { label: 'Packet Loss (%)', data: data.map(d => d.avg_loss_percent), borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.5)', type: 'bar', yAxisID: 'y1' }
                     ]
                 },
-                options: {
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'PPpp' } },
-                        y: { type: 'linear', display: true, position: 'left', beginAtZero: true, title: { display: true, text: 'RTT (ms)' } },
-                        y1: { type: 'linear', display: true, position: 'right', beginAtZero: true, max: 100, title: { display: true, text: '% Loss' }, grid: { drawOnChartArea: false } },
-                        // *** FIX: Define the new y2 axis for jitter ***
-                        y2: { type: 'linear', display: true, position: 'right', beginAtZero: true, title: { display: true, text: 'Jitter (ms)' }, grid: { drawOnChartArea: false } }
-                    }
-                }
+                options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'PPpp' }, grid: {color: gridColor}, ticks: {color: fontColor} }, y: { beginAtZero: true, position: 'left', title: { display: true, text: 'RTT (ms)', color: fontColor }, grid: {color: gridColor}, ticks: {color: fontColor} }, y1: { type: 'linear', display: true, position: 'right', beginAtZero: true, max: 100, title: { display: true, text: '% Loss', color: fontColor }, grid: { drawOnChartArea: false }, ticks: {color: fontColor} }, y2: { type: 'linear', display: true, position: 'right', beginAtZero: true, title: { display: true, text: 'Jitter (ms)', color: fontColor }, grid: { drawOnChartArea: false }, ticks: {color: fontColor} } }, plugins: { legend: { labels: { color: fontColor } } } }
             });
         }
         
         function renderSpeedTestChart(data) {
             const ctx = document.getElementById('speedTestChart').getContext('2d');
             if (speedChartInstance) speedChartInstance.destroy();
+            const isDark = document.body.classList.contains('dark-mode');
+            const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+            const fontColor = isDark ? '#e0e0e0' : '#333';
+
             speedChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: data.map(d => new Date(d.timestamp)),
                     datasets: [
-                        { label: 'Download (Mbps)', data: data.map(d => d.speedtest_download_mbps), borderColor: 'rgb(75, 192, 192)' },
-                        { label: 'Upload (Mbps)', data: data.map(d => d.speedtest_upload_mbps), borderColor: 'rgb(153, 102, 255)' }
+                        { label: 'Download (Mbps)', data: data.map(d => d.speedtest_download_mbps), borderColor: 'rgb(75, 192, 192)', backgroundColor: 'rgba(75, 192, 192, 0.2)', tension: 0.4, fill: true },
+                        { label: 'Upload (Mbps)', data: data.map(d => d.speedtest_upload_mbps), borderColor: 'rgb(153, 102, 255)', backgroundColor: 'rgba(153, 102, 255, 0.2)', tension: 0.4, fill: true }
                     ]
                 },
-                options: { maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'PPpp' } }, y: { beginAtZero: true, title: { display: true, text: 'Mbps' } } } }
+                options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'PPpp' }, grid: {color: gridColor}, ticks: {color: fontColor} }, y: { beginAtZero: true, title: { display: true, text: 'Mbps', color: fontColor }, grid: {color: gridColor}, ticks: {color: fontColor} } }, plugins: { legend: { labels: { color: fontColor } } } }
             });
         }
         
-        // --- Event Listeners & Initial Load ---
-        profileSelector.addEventListener('change', (event) => {
-            const selectedId = event.target.value;
-            // Use replaceState to avoid cluttering browser history on every click
-            history.replaceState({ agent_id: selectedId }, '', `?isp_id=${selectedId}`);
-            fetchAndUpdateDashboard(selectedId);
-        });
-
-        window.addEventListener('popstate', (event) => {
-            const agentId = event.state ? event.state.agent_id : new URLSearchParams(window.location.search).get('isp_id');
-            fetchAndUpdateDashboard(agentId);
-        });
+        function applyTheme(isDark) { document.body.classList.toggle('dark-mode', isDark); themeToggle.checked = isDark; fetchAndUpdateDashboard(profileSelector.value || null); }
+        
+        document.addEventListener('click', (e) => { if (e.target?.classList.contains('agent-name')) { e.preventDefault(); const agentId = e.target.dataset.id; profileSelector.value = agentId; history.pushState({ agent_id: agentId }, '', `?isp_id=${agentId}`); fetchAndUpdateDashboard(agentId); }});
+        profileSelector.addEventListener('change', (e) => { const agentId = e.target.value; const url = agentId ? `?isp_id=${agentId}` : './'; history.pushState({ agent_id: agentId }, '', url); fetchAndUpdateDashboard(agentId); });
+        themeToggle.addEventListener('change', () => { localStorage.setItem('dark-mode', themeToggle.checked); applyTheme(themeToggle.checked); });
 
         document.addEventListener('DOMContentLoaded', () => {
-            const initialAgentId = new URLSearchParams(window.location.search).get('isp_id');
-            fetchAndUpdateDashboard(initialAgentId);
+            const isDarkMode = localStorage.getItem('dark-mode') === 'true';
+            applyTheme(isDarkMode); // Applies theme first, then fetches data
         });
     </script>
 </body>
