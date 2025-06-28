@@ -1,23 +1,31 @@
 #!/bin/bash
 # SLA Monitor Agent Script
-# FINAL PRODUCTION VERSION - Reads ping targets and speedtest args from config.
+# FINAL PRODUCTION VERSION - Includes lock file to prevent concurrent runs.
 
-# --- Source the local agent configuration file ---
+# --- Configuration & Setup ---
 AGENT_CONFIG_FILE="/opt/sla_monitor/agent_config.env"
 LOG_FILE="/var/log/internet_sla_monitor_agent.log"
+LOCK_FILE="/tmp/sla_monitor_agent.lock"
 
-# Load config file if it exists. This sets the primary variables.
-if [ -f "$AGENT_CONFIG_FILE" ]; then
-    set -a; source "$AGENT_CONFIG_FILE"; set +a
+# --- Helper Functions ---
+log_message() { echo "$(date '+%Y-%m-%d %H:%M:%S %Z'): [$AGENT_IDENTIFIER] $1"; }
+
+# --- Lock File Logic ---
+if ! mkdir "$LOCK_FILE" 2>/dev/null; then
+    log_message "[LOCK] Previous instance is still running. Exiting."
+    exit 1
 fi
+# Automatically remove the lock file when the script exits, for any reason.
+trap 'rm -rf "$LOCK_FILE"' EXIT
 
-# --- Agent Default Configurations (used as fallbacks if not set in agent_config.env) ---
+# --- Source and Validate Configuration ---
+if [ -f "$AGENT_CONFIG_FILE" ]; then set -a; source "$AGENT_CONFIG_FILE"; set +a; fi
+DEFAULT_PING_HOSTS=("8.8.8.8" "1.1.1.1" "google.com")
+PING_HOSTS=("${PING_HOSTS[@]:-${DEFAULT_PING_HOSTS[@]}}")
 AGENT_IDENTIFIER="${AGENT_IDENTIFIER:-<UNIQUE_AGENT_ID>}"
 AGENT_TYPE="${AGENT_TYPE:-ISP}"
 CENTRAL_API_URL="${CENTRAL_API_URL:-http://<YOUR_CENTRAL_SERVER_IP>/api/submit_metrics.php}"
 CENTRAL_API_KEY="${CENTRAL_API_KEY:-}"
-PING_HOSTS=("${PING_HOSTS[@]}") # Reads the array from the sourced config
-SPEEDTEST_ARGS="${SPEEDTEST_ARGS:-}" # Reads the arguments from the sourced config
 PING_COUNT=${PING_COUNT:-10}
 PING_TIMEOUT=${PING_TIMEOUT:-5}
 DNS_CHECK_HOST="${DNS_CHECK_HOST:-www.google.com}"
@@ -29,33 +37,18 @@ ENABLE_DNS=${ENABLE_DNS:-true}
 ENABLE_HTTP=${ENABLE_HTTP:-true}
 ENABLE_SPEEDTEST=${ENABLE_SPEEDTEST:-true}
 NETWORK_INTERFACE_TO_MONITOR="${NETWORK_INTERFACE_TO_MONITOR:-}"
+SPEEDTEST_ARGS="${SPEEDTEST_ARGS:-}"
 
-# --- Helper Functions ---
-log_message() { echo "$(date '+%Y-%m-%d %H:%M:%S %Z'): [$AGENT_IDENTIFIER] $1" >> "$LOG_FILE"; }
-
-# --- Initial Setup & Validation ---
 log_message "Starting SLA Monitor Agent Script. Type: $AGENT_TYPE"
 
-if [[ "$CENTRAL_API_URL" == *"YOUR_CENTRAL_SERVER_IP"* ]] || [ -z "$CENTRAL_API_URL" ]; then
-    log_message "FATAL: CENTRAL_API_URL is not configured in ${AGENT_CONFIG_FILE}. Exiting."
-    exit 1
-fi
-if [[ "$AGENT_IDENTIFIER" == *"<UNIQUE_AGENT_ID>"* ]] || [ -z "$AGENT_IDENTIFIER" ]; then
-    log_message "FATAL: AGENT_IDENTIFIER is not configured in ${AGENT_CONFIG_FILE}. Exiting."
-    exit 1
-fi
-if [ ${#PING_HOSTS[@]} -eq 0 ]; then
-    log_message "WARN: PING_HOSTS array is not defined in ${AGENT_CONFIG_FILE}. Disabling ping test for this run."
-    ENABLE_PING=false
-fi
+if [[ "$CENTRAL_API_URL" == *"YOUR_CENTRAL_SERVER_IP"* ]] || [ -z "$CENTRAL_API_URL" ]; then log_message "FATAL: CENTRAL_API_URL not configured."; exit 1; fi
+if [[ "$AGENT_IDENTIFIER" == *"<UNIQUE_AGENT_ID>"* ]] || [ -z "$AGENT_IDENTIFIER" ]; then log_message "FATAL: AGENT_IDENTIFIER not configured."; exit 1; fi
+if [ ${#PING_HOSTS[@]} -eq 0 ]; then log_message "WARN: PING_HOSTS array not defined. Disabling ping test."; ENABLE_PING=false; fi
 
-# Auto-detect speedtest command, but NOT its arguments.
+# Auto-detect speedtest command.
 SPEEDTEST_COMMAND_PATH=""
-if command -v speedtest &>/dev/null; then
-    SPEEDTEST_COMMAND_PATH=$(command -v speedtest)
-elif command -v speedtest-cli &>/dev/null; then
-    SPEEDTEST_COMMAND_PATH=$(command -v speedtest-cli)
-fi
+if command -v speedtest &>/dev/null; then SPEEDTEST_COMMAND_PATH=$(command -v speedtest);
+elif command -v speedtest-cli &>/dev/null; then SPEEDTEST_COMMAND_PATH=$(command -v speedtest-cli); fi
 
 # --- Main Logic ---
 LOG_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -67,7 +60,6 @@ declare -A results_map
 if [ "$ENABLE_PING" = true ]; then
     log_message "Performing ping tests..."
     ping_interface_arg=""; if [ -n "$NETWORK_INTERFACE_TO_MONITOR" ]; then ping_interface_arg="-I $NETWORK_INTERFACE_TO_MONITOR"; fi
-    
     total_rtt_sum=0.0; total_loss_sum=0; total_jitter_sum=0.0; ping_targets_up=0
     for host in "${PING_HOSTS[@]}"; do
         ping_output=$(sudo LANG=C ping ${ping_interface_arg} -c "$PING_COUNT" -W "$PING_TIMEOUT" -q "$host" 2>&1)
@@ -77,21 +69,15 @@ if [ "$ENABLE_PING" = true ]; then
             rtt_line=$(echo "$ping_output" | grep 'rtt min/avg/max/mdev')
             avg_rtt=$(echo "$rtt_line" | cut -d'=' -f2 | cut -d'/' -f2)
             avg_jitter=$(echo "$rtt_line" | cut -d'=' -f2 | cut -d'/' -f4 | sed 's/\s*ms//')
-            
-            ((ping_targets_up++))
-            total_rtt_sum=$(awk "BEGIN {print $total_rtt_sum + $avg_rtt}")
+            ((ping_targets_up++)); total_rtt_sum=$(awk "BEGIN {print $total_rtt_sum + $avg_rtt}");
             if [[ "$avg_jitter" =~ ^[0-9.]+$ ]]; then total_jitter_sum=$(awk "BEGIN {print $total_jitter_sum + $avg_jitter}"); fi
-            total_loss_sum=$((total_loss_sum + packet_loss))
+            total_loss_sum=$((total_loss_sum + packet_loss));
         else
             log_message "Ping to $host: FAIL"
         fi
     done
-    
     if [ "$ping_targets_up" -gt 0 ]; then
-        results_map[ping_status]="UP"
-        results_map[ping_rtt]=$(awk "BEGIN {printf \"%.2f\", $total_rtt_sum / $ping_targets_up}")
-        results_map[ping_jitter]=$(awk "BEGIN {printf \"%.2f\", $total_jitter_sum / $ping_targets_up}")
-        results_map[ping_loss]=$(awk "BEGIN {printf \"%.1f\", $total_loss_sum / ${#PING_HOSTS[@]}}")
+        results_map[ping_status]="UP"; results_map[ping_rtt]=$(awk "BEGIN {printf \"%.2f\", $total_rtt_sum / $ping_targets_up}"); results_map[ping_jitter]=$(awk "BEGIN {printf \"%.2f\", $total_jitter_sum / $ping_targets_up}"); results_map[ping_loss]=$(awk "BEGIN {printf \"%.1f\", $total_loss_sum / ${#PING_HOSTS[@]}}");
     else
         results_map[ping_status]="DOWN"
     fi
@@ -102,13 +88,10 @@ if [ "$ENABLE_DNS" = true ]; then
     log_message "Performing DNS resolution test..."
     source_ip_arg_for_dig=""; if [ -n "$NETWORK_INTERFACE_TO_MONITOR" ]; then _source_ip_agent=$(ip -4 addr show "$NETWORK_INTERFACE_TO_MONITOR" | grep -oP 'inet \K[\d.]+'); if [ -n "$_source_ip_agent" ]; then source_ip_arg_for_dig="+source=$_source_ip_agent"; fi; fi
     dig_server_arg=""; if [ -n "$DNS_SERVER_TO_QUERY" ]; then dig_server_arg="@${DNS_SERVER_TO_QUERY}"; fi
-    
     start_time_dns=$(date +%s.%N)
     dns_output=$(dig +short +time=2 +tries=1 $source_ip_arg_for_dig $dig_server_arg "$DNS_CHECK_HOST" 2>&1)
     if [ $? -eq 0 ] && [ -n "$dns_output" ]; then
-        end_time_dns=$(date +%s.%N)
-        results_map[dns_status]="OK"
-        results_map[dns_time]=$(awk "BEGIN {printf \"%.0f\", ($end_time_dns - $start_time_dns) * 1000}")
+        end_time_dns=$(date +%s.%N); results_map[dns_status]="OK"; results_map[dns_time]=$(awk "BEGIN {printf \"%.0f\", ($end_time_dns - $start_time_dns) * 1000}");
     else
         results_map[dns_status]="FAILED"
     fi
@@ -118,16 +101,11 @@ fi
 if [ "$ENABLE_HTTP" = true ]; then
     log_message "Performing HTTP check..."
     interface_arg=""; if [ -n "$NETWORK_INTERFACE_TO_MONITOR" ]; then interface_arg="--interface $NETWORK_INTERFACE_TO_MONITOR"; fi
-    
     curl_output_stats=$(curl ${interface_arg} -L -s -o /dev/null -w "http_code=%{http_code}\ntime_total=%{time_total}" --max-time "$HTTP_TIMEOUT" "$HTTP_CHECK_URL")
     if [ $? -eq 0 ]; then
         results_map[http_code]=$(echo "$curl_output_stats" | grep "http_code" | cut -d'=' -f2)
         results_map[http_time]=$(echo "$curl_output_stats" | grep "time_total" | cut -d'=' -f2 | sed 's/,/./')
-        if [[ "${results_map[http_code]}" -ge 200 && "${results_map[http_code]}" -lt 400 ]]; then
-            results_map[http_status]="OK"
-        else
-            results_map[http_status]="ERROR_CODE"
-        fi
+        if [[ "${results_map[http_code]}" -ge 200 && "${results_map[http_code]}" -lt 400 ]]; then results_map[http_status]="OK"; else results_map[http_status]="ERROR_CODE"; fi
     else
         results_map[http_status]="FAILED_REQUEST"
     fi
@@ -137,51 +115,21 @@ fi
 if [ "$ENABLE_SPEEDTEST" = true ]; then
     if [ -n "$SPEEDTEST_COMMAND_PATH" ]; then
         log_message "Performing speedtest with '$SPEEDTEST_COMMAND_PATH' and args '$SPEEDTEST_ARGS'..."
-        speedtest_interface_arg=""
-        if [ -n "$NETWORK_INTERFACE_TO_MONITOR" ]; then
-            _source_ip_agent=$(ip -4 addr show "$NETWORK_INTERFACE_TO_MONITOR" | grep -oP 'inet \K[\d.]+' | head -n 1)
-            if [ -n "$_source_ip_agent" ]; then
-                # Check if the args from config file specify an interface type
-                if [[ "$SPEEDTEST_ARGS" == *"--source"* ]]; then 
-                    speedtest_interface_arg="--source $_source_ip_agent"
-                elif [[ "$SPEEDTEST_ARGS" == *"--interface"* ]]; then
-                    speedtest_interface_arg="--interface $NETWORK_INTERFACE_TO_MONITOR"
-                fi
-            fi
-        fi
-        
+        speedtest_interface_arg=""; if [ -n "$NETWORK_INTERFACE_TO_MONITOR" ]; then _source_ip_agent=$(ip -4 addr show "$NETWORK_INTERFACE_TO_MONITOR" | grep -oP 'inet \K[\d.]+'); if [ -n "$_source_ip_agent" ]; then if [[ "$SPEEDTEST_ARGS" == *"--source"* ]]; then speedtest_interface_arg="--source $_source_ip_agent"; elif [[ "$SPEEDTEST_ARGS" == *"--interface"* ]]; then speedtest_interface_arg="--interface $NETWORK_INTERFACE_TO_MONITOR"; fi; fi; fi
         speedtest_json_output=$(timeout 120s $SPEEDTEST_COMMAND_PATH $SPEEDTEST_ARGS $speedtest_interface_arg)
-        
         if [ $? -eq 0 ] && echo "$speedtest_json_output" | jq -e . > /dev/null 2>&1; then
             if echo "$speedtest_json_output" | jq -e '.download.bandwidth' > /dev/null 2>&1; then
-                log_message "Parsing speedtest output as Ookla JSON format."
-                dl_bytes_per_sec=$(echo "$speedtest_json_output" | jq -r '.download.bandwidth // 0')
-                ul_bytes_per_sec=$(echo "$speedtest_json_output" | jq -r '.upload.bandwidth // 0')
-                results_map[st_dl]=$(awk "BEGIN {printf \"%.2f\", $dl_bytes_per_sec * 8 / 1000000}")
-                results_map[st_ul]=$(awk "BEGIN {printf \"%.2f\", $ul_bytes_per_sec * 8 / 1000000}")
-                results_map[st_ping]=$(echo "$speedtest_json_output" | jq -r '.ping.latency // "null"')
-                results_map[st_jitter]=$(echo "$speedtest_json_output" | jq -r '.ping.jitter // "null"')
-                results_map[st_status]="COMPLETED"
+                log_message "Parsing speedtest output as Ookla JSON format."; dl_bytes_per_sec=$(echo "$speedtest_json_output" | jq -r '.download.bandwidth // 0'); ul_bytes_per_sec=$(echo "$speedtest_json_output" | jq -r '.upload.bandwidth // 0'); results_map[st_dl]=$(awk "BEGIN {printf \"%.2f\", $dl_bytes_per_sec * 8 / 1000000}"); results_map[st_ul]=$(awk "BEGIN {printf \"%.2f\", $ul_bytes_per_sec * 8 / 1000000}"); results_map[st_ping]=$(echo "$speedtest_json_output" | jq -r '.ping.latency // "null"'); results_map[st_jitter]=$(echo "$speedtest_json_output" | jq -r '.ping.jitter // "null"'); results_map[st_status]="COMPLETED";
             elif echo "$speedtest_json_output" | jq -e '.download' > /dev/null 2>&1; then
-                log_message "Parsing speedtest output as community speedtest-cli JSON format."
-                st_dl_bps=$(echo "$speedtest_json_output" | jq -r '.download // 0');
-                st_ul_bps=$(echo "$speedtest_json_output" | jq -r '.upload // 0');
-                results_map[st_dl]=$(awk "BEGIN {printf \"%.2f\", $st_dl_bps / 1000000}")
-                results_map[st_ul]=$(awk "BEGIN {printf \"%.2f\", $st_ul_bps / 1000000}")
-                results_map[st_ping]=$(echo "$speedtest_json_output" | jq -r '.ping // "null"')
-                results_map[st_jitter]="null"
-                results_map[st_status]="COMPLETED"
+                log_message "Parsing speedtest output as community speedtest-cli JSON format."; st_dl_bps=$(echo "$speedtest_json_output" | jq -r '.download // 0'); st_ul_bps=$(echo "$speedtest_json_output" | jq -r '.upload // 0'); results_map[st_dl]=$(awk "BEGIN {printf \"%.2f\", $st_dl_bps / 1000000}"); results_map[st_ul]=$(awk "BEGIN {printf \"%.2f\", $st_ul_bps / 1000000}"); results_map[st_ping]=$(echo "$speedtest_json_output" | jq -r '.ping // "null"'); results_map[st_jitter]="null"; results_map[st_status]="COMPLETED";
             else
-                log_message "Speedtest FAILED: JSON format not recognized."
-                results_map[st_status]="FAILED_PARSE"
+                log_message "Speedtest FAILED: JSON format not recognized."; results_map[st_status]="FAILED_PARSE";
             fi
         else
-            log_message "Speedtest FAILED: Command failed or produced non-JSON output."
-            results_map[st_status]="FAILED_EXEC"
+            log_message "Speedtest FAILED: Command failed or produced non-JSON output."; results_map[st_status]="FAILED_EXEC";
         fi
     else
-        log_message "Speedtest SKIPPED: No speedtest command found."
-        results_map[st_status]="SKIPPED_NO_CMD"
+        log_message "Speedtest SKIPPED: No speedtest command found."; results_map[st_status]="SKIPPED_NO_CMD";
     fi
 fi
 

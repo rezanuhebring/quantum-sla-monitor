@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Revised script to set up the SLA Monitor Agent on a Linux system.
-# FINAL VERSION - Includes automated permission fix for the 'ping' command.
+# setup_agent_linux.sh - FINAL PRODUCTION VERSION
+# Includes automated permission fix for the 'ping' command.
 
 # --- Configuration Variables ---
 MONITOR_SCRIPT_NAME="monitor_internet.sh"
@@ -93,7 +93,7 @@ SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
 # Run the monitor script every 15 minutes
-*/15 * * * * root ${MONITOR_SCRIPT_PATH} >> ${AGENT_LOG_FILE} 2>&1
+*/15 * * * * root ${MONITOR_SCRIPT_PATH}
 EOF
 sudo chown root:root "${CRON_FILE_DEST}"
 sudo chmod 644 "${CRON_FILE_DEST}"
