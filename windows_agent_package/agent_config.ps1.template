@@ -1,44 +1,31 @@
-# Agent Configuration for SLA Monitor (PowerShell format)
-# Copy this file to agent_config.ps1 in C:\SLA_Monitor_Agent and fill in your values.
+# agent_config.psd1
+# PowerShell Data File for the SLA Monitor Agent configuration.
 
-$AgentConfig = @{
-    # !!! IMPORTANT: This MUST be unique for each agent and will be used
-    # to identify this agent on the central server. It should match an 'agent_identifier'
-    # that will be auto-created or pre-configured on the central server.
-    AGENT_IDENTIFIER = "Windows_Agent_XYZ_001"
+@{
+    # ==============================================================================
+    #                      SLA Monitor Agent Configuration
+    # ==============================================================================
 
-    # !!! IMPORTANT: Set agent type: "ISP" or "Client"
-    # This will be sent to the central server.
-    AGENT_TYPE       = "Client" 
+    # --- Mandatory Settings ---
+    AGENT_IDENTIFIER = "<UNIQUE_AGENT_ID>"
+    CENTRAL_API_URL = "http://<YOUR_CENTRAL_SERVER_IP>/api/submit_metrics.php"
     
-    # !!! IMPORTANT: URL of the central server's API endpoint for submitting metrics
-    CENTRAL_API_URL  = "http://YOUR_CENTRAL_SERVER_IP_OR_HOSTNAME/sla_status/api/submit_metrics.php" 
+    # --- Optional Settings ---
+    AGENT_TYPE = "Client" # Use "Client" for Windows agents to differentiate them.
+    CENTRAL_API_KEY = ""
+
+    # --- Test Parameters ---
+    PING_HOSTS = @("8.8.8.8", "1.1.1.1", "google.com")
     
-    # Optional: API Key for authenticating with the central server (if implemented on central API)
-    # CENTRAL_API_KEY = "your_super_secret_api_key_for_this_agent"
+    # --- Test Enable/Disable Flags ---
+    ENABLE_PING = $true
+    ENABLE_DNS = $true
+    ENABLE_HTTP = $true
+    ENABLE_SPEEDTEST = $true
 
-    # Optional: Network interface to try and bind tests to (use interface name or IP).
-    # Finding and using a specific interface in PowerShell for all tools can be complex.
-    # Leave empty to use system default route.
-    NETWORK_INTERFACE_TO_MONITOR = "" # Example: "Ethernet 2"
-
-    # Fallback thresholds (if agent cannot fetch its profile from central server,
-    # or if the central server's get_profile_config.php endpoint is not fully implemented yet).
-    # The agent will primarily try to use thresholds defined for its AGENT_IDENTIFIER on the central server.
-    SLA_TARGET_PERCENTAGE         = 99.5
-    RTT_THRESHOLD_DEGRADED        = 150 
-    RTT_THRESHOLD_POOR            = 300
-    LOSS_THRESHOLD_DEGRADED       = 2
-    LOSS_THRESHOLD_POOR           = 10
-    PING_JITTER_THRESHOLD_DEGRADED= 30
-    PING_JITTER_THRESHOLD_POOR    = 50
-    DNS_TIME_THRESHOLD_DEGRADED   = 500
-    DNS_TIME_THRESHOLD_POOR       = 1000
-    HTTP_TIME_THRESHOLD_DEGRADED  = 1.5
-    HTTP_TIME_THRESHOLD_POOR      = 3.0
-    SPEEDTEST_DL_THRESHOLD_DEGRADED = 50 
-    SPEEDTEST_DL_THRESHOLD_POOR     = 20
-    SPEEDTEST_UL_THRESHOLD_DEGRADED = 10
-    SPEEDTEST_UL_THRESHOLD_POOR     = 5
-    # TEAMS_WEBHOOK_URL and ALERT_HOSTNAME will be effectively managed by the central server's profile for this agent.
+    # --- Fine-Tuning Parameters ---
+    PING_COUNT = 10
+    DNS_CHECK_HOST = "www.google.com"
+    HTTP_CHECK_URL = "https://www.google.com"
+    NETWORK_INTERFACE_TO_MONITOR = "" # e.g., "Ethernet", "Wi-Fi". Leave blank for default.
 }

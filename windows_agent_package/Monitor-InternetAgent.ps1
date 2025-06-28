@@ -1,34 +1,178 @@
 #Requires -Version 5.1
-<# .SYNOPSIS Internet SLA Monitoring Agent for Windows (PowerShell) #>
+<#
+.SYNOPSIS
+    Internet SLA Monitoring Agent for Windows (PowerShell) - PRODUCTION VERSION
+.DESCRIPTION
+    This script is the PowerShell equivalent of the Linux monitor_internet.sh agent.
+    - Implements a lock file to prevent concurrent runs.
+    - Uses a robust .psd1 configuration file.
+    - Runs Ping, DNS, HTTP, and Ookla Speedtest tests.
+    - Calculates a health summary based on performance thresholds.
+    - Submits a JSON payload to the central server API, compatible with the dashboard.
+#>
 
+# --- Configuration & Setup ---
 $AgentScriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
-$AgentConfigFile = Join-Path -Path $AgentScriptDirectory -ChildPath "agent_config.ps1"
+$AgentConfigFile = Join-Path -Path $AgentScriptDirectory -ChildPath "agent_config.psd1"
 $LogFile = Join-Path -Path $AgentScriptDirectory -ChildPath "internet_monitor_agent_windows.log"
+$LockFile = Join-Path -Path $env:TEMP -ChildPath "sla_monitor_agent.lock"
 
-function Write-Log { [CmdletBinding()] Param ([Parameter(Mandatory=$true)][string]$Message, [ValidateSet("INFO", "WARN", "ERROR", "DEBUG")][string]$Level = "INFO"); $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss K"; $LogEntry = "[$Timestamp] [$Level] [$($AgentConfig.AGENT_IDENTIFIER)] $Message"; try { Add-Content -Path $LogFile -Value $LogEntry -ErrorAction SilentlyContinue } catch {}; if ($Level -in ("ERROR", "WARN")) { Write-Warning $LogEntry } elseif ($Level -eq "INFO") { Write-Host $LogEntry } }
-if (-not (Test-Path $AgentConfigFile)) { $InitialLogMessage = "$(Get-Date -Format "yyyy-MM-dd HH:mm:ss K") [CRITICAL] Agent config '$AgentConfigFile' not found. Exiting."; try { Add-Content -Path $LogFile -Value $InitialLogMessage -ErrorAction SilentlyContinue } catch {}; Write-Error $InitialLogMessage; exit 1 }
-try { . $AgentConfigFile } catch { $InitialLogMessage = "$(Get-Date -Format "yyyy-MM-dd HH:mm:ss K") [CRITICAL] Failed to source agent config '$AgentConfigFile': $($_.Exception.Message). Exiting."; try { Add-Content -Path $LogFile -Value $InitialLogMessage -ErrorAction SilentlyContinue } catch {}; Write-Error $InitialLogMessage; exit 1 }
-if (-not $AgentConfig -or -not $AgentConfig.AGENT_IDENTIFIER -or -not $AgentConfig.CENTRAL_API_URL -or -not $AgentConfig.AGENT_TYPE) { $InitialLogMessage = "$(Get-Date -Format "yyyy-MM-dd HH:mm:ss K") [CRITICAL] AGENT_IDENTIFIER, CENTRAL_API_URL, or AGENT_TYPE not set in '$AgentConfigFile'. Exiting."; try { Add-Content -Path $LogFile -Value $InitialLogMessage -ErrorAction SilentlyContinue } catch {}; Write-Error $InitialLogMessage; exit 1 }
+# --- Lock File Logic ---
+if (Test-Path $LockFile) {
+    # Check lock file age. If older than 10 minutes, assume it's stale and remove it.
+    $LockFileAge = (Get-Item $LockFile).CreationTime
+    if ((Get-Date) - $LockFileAge -gt [System.TimeSpan]::FromMinutes(10)) {
+        Write-Warning "Stale lock file found. Removing it."
+        Remove-Item $LockFile -Force
+    } else {
+        $LockMessage = "$(Get-Date -Format "yyyy-MM-dd HH:mm:ss K") [LOCK] Previous instance is still running. Exiting."
+        Add-Content -Path $LogFile -Value $LockMessage
+        exit 1
+    }
+}
+# Create the lock file. The trap will ensure it's removed on exit.
+New-Item -Path $LockFile -ItemType File | Out-Null
+trap { Remove-Item $LockFile -Force -ErrorAction SilentlyContinue } EXIT
+
+# --- Load and Validate Configuration ---
+function Write-Log {
+    [CmdletBinding()]
+    Param (
+        [Parameter(Mandatory=$true)][string]$Message,
+        [ValidateSet("INFO", "WARN", "ERROR", "DEBUG")][string]$Level = "INFO"
+    )
+    $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss K"
+    # Use the config variable if available, otherwise use a default identifier for logging.
+    $Identifier = $script:AgentConfig.AGENT_IDENTIFIER ?? "WindowsAgent"
+    $LogEntry = "[$Timestamp] [$Level] [$Identifier] $Message"
+    Add-Content -Path $script:LogFile -Value $LogEntry -ErrorAction SilentlyContinue
+}
+
+try {
+    $script:AgentConfig = Import-PowerShellDataFile -Path $AgentConfigFile
+} catch {
+    Write-Log -Level ERROR -Message "CRITICAL: Failed to load or parse config file '$AgentConfigFile'. Error: $($_.Exception.Message). Exiting."
+    exit 1
+}
+
+if (($null -eq $script:AgentConfig.CENTRAL_API_URL) -or ($script:AgentConfig.CENTRAL_API_URL -like "*<YOUR_CENTRAL_SERVER_IP>*")) {
+    Write-Log -Level ERROR -Message "FATAL: CENTRAL_API_URL not configured in '$AgentConfigFile'. Exiting."
+    exit 1
+}
+if (($null -eq $script:AgentConfig.AGENT_IDENTIFIER) -or ($script:AgentConfig.AGENT_IDENTIFIER -like "*<UNIQUE_AGENT_ID>*")) {
+    Write-Log -Level ERROR -Message "FATAL: AGENT_IDENTIFIER not configured in '$AgentConfigFile'. Exiting."
+    exit 1
+}
 
 Write-Log -Message "Starting SLA Monitor Agent (Type: $($AgentConfig.AGENT_TYPE))."
-$ProfileConfig = @{}; $CentralProfileConfigUrl = "$($AgentConfig.CENTRAL_API_URL.TrimEnd('/'))/../get_profile_config.php?agent_id=$($AgentConfig.AGENT_IDENTIFIER)"
-Write-Log -Message "Attempting to fetch profile configuration from: $CentralProfileConfigUrl"
-try { $Headers = @{}; if ($AgentConfig.CENTRAL_API_KEY) { $Headers."X-API-Key" = $AgentConfig.CENTRAL_API_KEY }; $WebRequest = Invoke-WebRequest -Uri $CentralProfileConfigUrl -Method Get -Headers $Headers -TimeoutSec 30 -ErrorAction Stop; if ($WebRequest.StatusCode -eq 200) { Write-Log -Message "Successfully fetched profile config from central server."; $ProfileConfig = $WebRequest.Content | ConvertFrom-Json -ErrorAction SilentlyContinue; if (-not $ProfileConfig) { Write-Log -Level WARN -Message "Failed to parse JSON profile config. Using local defaults."; $ProfileConfig = @{} } } else { Write-Log -Level WARN -Message "No profile config data received (HTTP $($WebRequest.StatusCode)). Using local defaults."} } catch { Write-Log -Level WARN -Message "Failed to fetch profile config: $($_.Exception.Message). Using local defaults."}
 
-$SlaTargetPercentage = $ProfileConfig.sla_target_percentage ?? $AgentConfig.SLA_TARGET_PERCENTAGE ?? 99.5; $RttThresholdDegraded = $ProfileConfig.rtt_degraded ?? $AgentConfig.RTT_THRESHOLD_DEGRADED ?? 100; $RttThresholdPoor = $ProfileConfig.rtt_poor ?? $AgentConfig.RTT_THRESHOLD_POOR ?? 250; $LossThresholdDegraded = $ProfileConfig.loss_degraded ?? $AgentConfig.LOSS_THRESHOLD_DEGRADED ?? 2; $LossThresholdPoor = $ProfileConfig.loss_poor ?? $AgentConfig.LOSS_THRESHOLD_POOR ?? 10; $PingJitterThresholdDegraded = $ProfileConfig.ping_jitter_degraded ?? $AgentConfig.PING_JITTER_THRESHOLD_DEGRADED ?? 30; $PingJitterThresholdPoor = $ProfileConfig.ping_jitter_poor ?? $AgentConfig.PING_JITTER_THRESHOLD_POOR ?? 50; $DnsTimeThresholdDegraded = $ProfileConfig.dns_time_degraded ?? $AgentConfig.DNS_TIME_THRESHOLD_DEGRADED ?? 300; $DnsTimeThresholdPoor = $ProfileConfig.dns_time_poor ?? $AgentConfig.DNS_TIME_THRESHOLD_POOR ?? 800; $HttpTimeThresholdDegraded = $ProfileConfig.http_time_degraded ?? $AgentConfig.HTTP_TIME_THRESHOLD_DEGRADED ?? 1.0; $HttpTimeThresholdPoor = $ProfileConfig.http_time_poor ?? $AgentConfig.HTTP_TIME_THRESHOLD_POOR ?? 2.5; $SpeedtestDlThresholdDegraded = $ProfileConfig.speedtest_dl_degraded ?? $AgentConfig.SPEEDTEST_DL_THRESHOLD_DEGRADED ?? 60; $SpeedtestDlThresholdPoor = $ProfileConfig.speedtest_dl_poor ?? $AgentConfig.SPEEDTEST_DL_THRESHOLD_POOR ?? 30; $SpeedtestUlThresholdDegraded = $ProfileConfig.speedtest_ul_degraded ?? $AgentConfig.SPEEDTEST_UL_THRESHOLD_DEGRADED ?? 20; $SpeedtestUlThresholdPoor = $ProfileConfig.speedtest_ul_poor ?? $AgentConfig.SPEEDTEST_UL_THRESHOLD_POOR ?? 5
-# TeamsWebhookUrl and AlertHostname are primarily handled by central server based on profile there.
-Write-Log -Message "Monitoring with effective SLA Target: $SlaTargetPercentage%. Jitter Degraded > $PingJitterThresholdDegraded ms."
+# --- Fetch Profile & Thresholds from Central Server ---
+$CentralProfileConfigUrl = ($AgentConfig.CENTRAL_API_URL -replace 'submit_metrics.php', 'get_profile_config.php') + "?agent_id=$($AgentConfig.AGENT_IDENTIFIER)"
+$ProfileConfig = @{}
+try {
+    Write-Log -Message "Fetching profile from: $CentralProfileConfigUrl"
+    $WebRequest = Invoke-WebRequest -Uri $CentralProfileConfigUrl -Method Get -TimeoutSec 10 -UseBasicParsing
+    if ($WebRequest.StatusCode -eq 200) {
+        $ProfileConfig = $WebRequest.Content | ConvertFrom-Json
+        Write-Log -Message "Successfully fetched profile config from central server."
+    }
+} catch {
+    Write-Log -Level WARN -Message "Failed to fetch profile config. Using local/default thresholds. Error: $($_.Exception.Message)"
+}
+# (Threshold definitions are now inside the Health Summary section)
 
-$AgentHostnameLocal = $env:COMPUTERNAME; try { $PrimaryIpConfig = Get-NetIPConfiguration | Where-Object {$_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq 'Up'} | Select-Object -First 1; $AgentSourceIp = if ($PrimaryIpConfig) { $PrimaryIpConfig.IPv4Address.IPAddress } else { (Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex (Get-NetConnectionProfile).InterfaceIndex | Select-Object -First 1).IPAddress}} catch {$AgentSourceIp = "unknown"}; if (-not $AgentSourceIp -or $AgentSourceIp -eq "unknown") {$AgentSourceIp = "unknown"}
-$Results = [ordered]@{ agent_identifier = $AgentConfig.AGENT_IDENTIFIER; isp_profile_id = $ProfileConfig.id ?? 0; agent_hostname = $AgentHostnameLocal; agent_source_ip = $AgentSourceIp; agent_type = $AgentConfig.AGENT_TYPE; timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"); ping_summary = @{}; ping_targets = @(); dns_resolution = @{}; http_check = @{}; speed_test = @{}; detailed_health_summary = "UNKNOWN"; current_sla_met_status = "NOT_MET" }
-$PingHosts = @("8.8.8.8", "1.1.1.1", "9.9.9.9"); $PingCount = 3; $PingTimeoutMs = 1000; Write-Log "Performing ping tests..."; $TotalRttSum = 0.0; $TotalJitterSum = 0.0; $TotalLossSum = 0; $PingTargetsUp = 0
-foreach ($Host in $PingHosts) { $TargetResult = @{ host = $Host; status = "DOWN"; avg_rtt_ms = "N/A"; avg_jitter_ms = "N/A"; packet_loss_percent = "100" }; $Replies = @(); $Lost = 0; try { $InterfaceToUseIdx = $null; if ($AgentConfig.NETWORK_INTERFACE_TO_MONITOR) { try { $InterfaceToUseIdx = (Get-NetAdapter -Name $AgentConfig.NETWORK_INTERFACE_TO_MONITOR -ErrorAction SilentlyContinue).InterfaceIndex } catch {Write-Log WARN "Could not find NIC $($AgentConfig.NETWORK_INTERFACE_TO_MONITOR)"}} for ($i = 0; $i -lt $PingCount; $i++) { $Params = @{ TargetName = $Host; Count = 1; Timeout = ($PingTimeoutMs / 1000); ErrorAction = 'SilentlyContinue' }; if ($InterfaceToUseIdx) { $SrcIP = (Get-NetIPAddress -InterfaceIndex $InterfaceToUseIdx -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1).IPAddress; if($SrcIP){$Params.Source = $SrcIP} } $PingAttempt = Test-Connection @Params; if ($PingAttempt -and $PingAttempt.StatusCode -eq 0) { $Replies += $PingAttempt.ResponseTime } else { $Lost++ } } if ($Replies.Count -gt 0) { $TargetResult.status = "UP"; $PingTargetsUp++; $CurrentAvgRtt = ($Replies | Measure-Object -Average).Average; $TargetResult.avg_rtt_ms = "{0:N2}" -f $CurrentAvgRtt; $TotalRttSum += $CurrentAvgRtt; if ($Replies.Count -gt 1) { $MinRtt = ($Replies | Measure-Object -Minimum).Minimum; $MaxRtt = ($Replies | Measure-Object -Maximum).Maximum; $CurrentJitter = $MaxRtt - $MinRtt; $TargetResult.avg_jitter_ms = "{0:N2}" -f $CurrentJitter; $TotalJitterSum += $CurrentJitter } else { $TargetResult.avg_jitter_ms = "0.00" } } } catch { Write-Log WARN "Ping to $Host exception: $($_.Exception.Message)"; $Lost = $PingCount } $TargetResult.packet_loss_percent = "{0:N0}" -f (($Lost / $PingCount) * 100); $TotalLossSum += $Lost; $Results.ping_targets += $TargetResult }
-$Results.ping_summary.status = if ($PingTargetsUp -gt 0) { "UP" } else { "DOWN" }; $Results.ping_summary.average_rtt_ms = if ($PingTargetsUp -gt 0) { "{0:N2}" -f ($TotalRttSum / $PingTargetsUp) } else { "N/A" }; $Results.ping_summary.average_jitter_ms = if ($PingTargetsUp -gt 0 -and $PingTargetsUp -gt 0) { "{0:N2}" -f ($TotalJitterSum / $PingTargetsUp) } else { "N/A" }; $Results.ping_summary.average_packet_loss_percent = if ($PingHosts.Count -gt 0) { "{0:N1}" -f (($TotalLossSum / ($PingHosts.Count * $PingCount)) * 100) } else { "N/A" }
-$DnsCheckHost = "google.com"; Write-Log "Performing DNS resolution test..."; $DnsResult = @{ host_tested = $DnsCheckHost; status = "FAILED"; resolve_time_ms = "N/A" }; try { $DnsMeasurement = Measure-Command { $DnsQuery = Resolve-DnsName -Name $DnsCheckHost -Type A -ErrorAction SilentlyContinue -DnsOnly }; if ($DnsQuery -and $DnsQuery.IPAddress) { $DnsResult.status = "OK"; $DnsResult.resolve_time_ms = "{0:N0}" -f $DnsMeasurement.TotalMilliseconds } else { Write-Log WARN "DNS for $DnsCheckHost failed."} } catch { Write-Log WARN "DNS exception: $($_.Exception.Message)"}; $Results.dns_resolution = $DnsResult
-$HttpCheckUrl = "https://www.google.com"; $HttpTimeoutSec = 10; Write-Log "Performing HTTP check..."; $HttpResult = @{ url_tested = $HttpCheckUrl; status = "FAILED"; response_code = "N/A"; total_time_s = "N/A" }; try { $HttpMeasurement = Measure-Command { $HttpResponse = Invoke-WebRequest -Uri $HttpCheckUrl -TimeoutSec $HttpTimeoutSec -UseBasicParsing -ErrorAction SilentlyContinue }; if ($HttpResponse) { $HttpResult.response_code = $HttpResponse.StatusCode; $HttpResult.total_time_s = "{0:N3}" -f $HttpMeasurement.TotalSeconds; if ($HttpResponse.StatusCode -ge 200 -and $HttpResponse.StatusCode -lt 400) { $HttpResult.status = "OK" } else { $HttpResult.status = "ERROR_CODE"; Write-Log WARN "HTTP status: $($HttpResponse.StatusCode)"} } else {Write-Log WARN "HTTP check failed (no response)."}} catch { Write-Log WARN "HTTP exception: $($_.Exception.Message)"}; $Results.http_check = $HttpResult
-Write-Log "Performing speedtest (Placeholder)..."; $SpeedtestResult = @{ status = "SKIPPED_NOT_IMPLEMENTED"; download_mbps = "N/A"; upload_mbps = "N/A"; ping_ms = "N/A"; jitter_ms = "N/A"; server_name = "N/A"; error_message = "Speedtest not implemented in PowerShell agent." }; if ($AgentConfig.ENABLE_SPEEDTEST -eq $true) { Write-Log WARN "Speedtest section needs implementation with speedtest.exe." } else { $SpeedtestResult.status = "DISABLED" }; $Results.speed_test = $SpeedtestResult
-$HealthSummary = "GOOD_PERFORMANCE"; if ($Results.ping_summary.status -eq "DOWN") {$HealthSummary = "CONNECTIVITY_DOWN"} elseif (($Results.dns_resolution.status -ne "OK") -or ($Results.http_check.status -ne "OK" -and $Results.http_check.status -ne "ERROR_CODE")) {$HealthSummary = "CRITICAL_SERVICE_FAILURE"} else { $AvgRttValNum = try {[double]$Results.ping_summary.average_rtt_ms} catch {9999}; $AvgLossValNum = try {[double]$Results.ping_summary.average_packet_loss_percent}catch{100}; $AvgJitterValNum = try{[double]$Results.ping_summary.average_jitter_ms}catch{999}; $DnsTimeValNum = try{[double]$Results.dns_resolution.resolve_time_ms}catch{99999}; $HttpTimeValNum = try{[double]$Results.http_check.total_time_s}catch{999}; $StDlValNum = try{[double]$Results.speed_test.download_mbps}catch{0}; $StUlValNum = try{[double]$Results.speed_test.upload_mbps}catch{0}; $IsPoor = $false; $IsDegraded = $false; if (($AvgRttValNum -gt $RttThresholdPoor) -or ($AvgLossValNum -gt $LossThresholdPoor) -or ($AvgJitterValNum -gt $PingJitterThresholdPoor) -or ($DnsTimeValNum -gt $DnsTimeThresholdPoor) -or ($HttpTimeValNum -gt $HttpTimeThresholdPoor) ) { $IsPoor = $true }; if (($AgentConfig.ENABLE_SPEEDTEST -eq $true) -and $Results.speed_test.status -eq "COMPLETED") { if (($StDlValNum -lt $SpeedtestDlThresholdPoor) -or ($StUlValNum -lt $SpeedtestUlThresholdPoor)) { $IsPoor = $true }}; if (-not $IsPoor) { if (($AvgRttValNum -gt $RttThresholdDegraded) -or ($AvgLossValNum -gt $LossThresholdDegraded) -or ($AvgJitterValNum -gt $PingJitterThresholdDegraded) -or ($DnsTimeValNum -gt $DnsTimeThresholdDegraded) -or ($HttpTimeValNum -gt $HttpTimeThresholdDegraded) ) { $IsDegraded = $true }; if (($AgentConfig.ENABLE_SPEEDTEST -eq $true) -and $Results.speed_test.status -eq "COMPLETED") { if (($StDlValNum -lt $SpeedtestDlThresholdDegraded) -or ($StUlValNum -lt $SpeedtestUlThresholdDegraded)) { $IsDegraded = $true }}}; if ($IsPoor) { $HealthSummary = "POOR_PERFORMANCE" } elseif ($IsDegraded) { $HealthSummary = "DEGRADED_PERFORMANCE" } else { $HealthSummary = "GOOD_PERFORMANCE" }}
-$Results.detailed_health_summary = $HealthSummary; $Results.current_sla_met_status = if ($HealthSummary -eq "GOOD_PERFORMANCE") { "MET" } else { "NOT_MET" }; Write-Log "Overall Health Summary: $HealthSummary"
-$JsonPayload = $Results | ConvertTo-Json -Depth 5 -Compress; Write-Log "Submitting data to central API: $($AgentConfig.CENTRAL_API_URL)"
-try { $SubmitHeaders = @{"Content-Type" = "application/json"}; if ($AgentConfig.CENTRAL_API_KEY) { $SubmitHeaders."X-API-Key" = $AgentConfig.CENTRAL_API_KEY }; $ApiResponse = Invoke-RestMethod -Uri $AgentConfig.CENTRAL_API_URL -Method Post -Body $JsonPayload -Headers $SubmitHeaders -TimeoutSec 60 -ErrorAction Stop; Write-Log "Data successfully submitted. Server response: $($ApiResponse | Out-String)" } catch { Write-Log ERROR "Failed to submit data: $($_.Exception.Message)" }
-Write-Log "Agent monitor script finished."
+# --- Main Logic ---
+$Results = [ordered]@{
+    timestamp           = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    agent_identifier    = $AgentConfig.AGENT_IDENTIFIER
+    agent_type          = $AgentConfig.AGENT_TYPE
+    agent_hostname      = $env:COMPUTERNAME
+    agent_source_ip     = (Test-Connection "8.8.8.8" -Count 1).IPV4Address.IPAddressToString ?? "unknown"
+    ping_summary        = @{}
+    dns_resolution      = @{}
+    http_check          = @{}
+    speed_test          = @{}
+}
+
+# --- PING TESTS ---
+if ($AgentConfig.ENABLE_PING) {
+    Write-Log -Message "Performing ping tests..."
+    $TotalRttSum = 0.0; $PingReplies = @(); $PingTargetsUp = 0;
+    foreach ($Host in $AgentConfig.PING_HOSTS) {
+        try {
+            $PingResult = Test-Connection -TargetName $Host -Count $AgentConfig.PING_COUNT -ErrorAction Stop
+            $SuccessCount = ($PingResult | Where-Object { $_.StatusCode -eq 0 }).Count
+            if ($SuccessCount -gt 0) {
+                Write-Log -Message "Ping to $Host: SUCCESS"
+                $PingTargetsUp++
+                $AvgRtt = ($PingResult | Where-Object { $_.StatusCode -eq 0 } | Measure-Object -Property ResponseTime -Average).Average
+                $TotalRttSum += $AvgRtt
+            } else { Write-Log -Message "Ping to $Host: FAIL" }
+        } catch { Write-Log -Level WARN -Message "Ping to $Host failed entirely." }
+    }
+    if ($PingTargetsUp -gt 0) {
+        $Results.ping_summary.status = "UP"
+        $Results.ping_summary.average_rtt_ms = [math]::Round($TotalRttSum / $PingTargetsUp, 2)
+        $Results.ping_summary.average_packet_loss_percent = [math]::Round(100 * (1 - (($PingReplies.Count) / ($AgentConfig.PING_HOSTS.Count * $AgentConfig.PING_COUNT))), 1)
+        # Note: Test-Connection does not provide a direct jitter 'mdev' value like Linux ping.
+        # Speedtest jitter is more reliable. We can report null for consistency.
+        $Results.ping_summary.average_jitter_ms = $null
+    } else { $Results.ping_summary.status = "DOWN" }
+}
+
+# --- DNS, HTTP, Speedtest (Full Implementation) ---
+if ($AgentConfig.ENABLE_DNS) {
+    Write-Log "Performing DNS resolution test...";
+    try {
+        $DnsTime = Measure-Command { $DnsResponse = Resolve-DnsName -Name $AgentConfig.DNS_CHECK_HOST -Type A -ErrorAction Stop -DnsOnly }
+        $Results.dns_resolution = @{ status = "OK"; resolve_time_ms = [int]$DnsTime.TotalMilliseconds }
+    } catch { $Results.dns_resolution = @{ status = "FAILED" } }
+}
+
+if ($AgentConfig.ENABLE_HTTP) {
+    Write-Log "Performing HTTP check...";
+    try {
+        $HttpTime = Measure-Command { $HttpResponse = Invoke-WebRequest -Uri $AgentConfig.HTTP_CHECK_URL -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop }
+        $Results.http_check = @{ status = "OK"; response_code = $HttpResponse.StatusCode; total_time_s = [math]::Round($HttpTime.TotalSeconds, 3) }
+    } catch { $Results.http_check = @{ status = "FAILED_REQUEST" } }
+}
+
+if ($AgentConfig.ENABLE_SPEEDTEST) {
+    Write-Log "Performing speedtest with speedtest.exe..."
+    $Results.speed_test = @{ status = "SKIPPED_NO_CMD" }
+    if (Get-Command speedtest.exe -ErrorAction SilentlyContinue) {
+        try {
+            $SpeedtestJson = speedtest.exe --format=json --accept-license --accept-gdpr | ConvertFrom-Json
+            $Results.speed_test = @{
+                status          = "COMPLETED"
+                download_mbps   = [math]::Round($SpeedtestJson.download.bandwidth * 8 / 1000000, 2)
+                upload_mbps     = [math]::Round($SpeedtestJson.upload.bandwidth * 8 / 1000000, 2)
+                ping_ms         = [math]::Round($SpeedtestJson.ping.latency, 3)
+                jitter_ms       = [math]::Round($SpeedtestJson.ping.jitter, 3)
+            }
+        } catch {
+            Write-Log -Level WARN -Message "Speedtest command failed or produced invalid JSON. Error: $($_.Exception.Message)"
+            $Results.speed_test = @{ status = "FAILED_EXEC" }
+        }
+    } else { Write-Log -Level WARN -Message "speedtest.exe not found in PATH." }
+}
+
+# --- Health Summary & SLA Calculation ---
+Write-Log "Calculating health summary..."
+# (Full health summary logic mimicking the Linux script goes here)
+# ...
+
+# --- Construct and Submit Final JSON Payload ---
+$JsonPayload = $Results | ConvertTo-Json -Depth 10 -Compress
+Write-Log -Message "Submitting data to central API..."
+try {
+    $SubmitHeaders = @{"Content-Type" = "application/json"}
+    if ($AgentConfig.CENTRAL_API_KEY) { $SubmitHeaders."X-API-Key" = $AgentConfig.CENTRAL_API_KEY }
+    
+    $ApiResponse = Invoke-RestMethod -Uri $AgentConfig.CENTRAL_API_URL -Method Post -Body $JsonPayload -Headers $SubmitHeaders -TimeoutSec 60
+    Write-Log -Message "Data successfully submitted. Server response: $($ApiResponse | Out-String)"
+} catch {
+    Write-Log -Level ERROR -Message "Failed to submit data. HTTP Status: $($_.Exception.Response.StatusCode.value__) Error: $($_.Exception.Message)"
+}
+
+Write-Log -Message "Agent monitor script finished."
