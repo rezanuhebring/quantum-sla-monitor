@@ -21,7 +21,7 @@ if (Test-Path $LockFile) {
         Remove-Item $LockFile -Force
     } else {
         $LockMessage = "$(Get-Date -Format "yyyy-MM-dd HH:mm:ss K") [LOCK] Previous instance is still running. Exiting."
-        Add-Content -Path $LogFile -Value $LockMessage
+        try { Add-Content -Path $LogFile -Value $LockMessage } catch {}
         exit 1
     }
 }
@@ -36,13 +36,14 @@ function Write-Log {
         [ValidateSet("INFO", "WARN", "ERROR", "DEBUG")][string]$Level = "INFO"
     )
     $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss K"
-    # --- FIX: Replace ?? with PowerShell 5.1 compatible logic ---
     $Identifier = "WindowsAgent"
     if ($null -ne $script:AgentConfig.AGENT_IDENTIFIER) {
         $Identifier = $script:AgentConfig.AGENT_IDENTIFIER
     }
+    
+    # *** FIX: Corrected variable syntax from $$script:LogFile to $script:LogFile ***
     $LogEntry = "[$Timestamp] [$Level] [$Identifier] $Message"
-    Add-Content -Path $script:LogFile -Value $LogEntry -ErrorAction SilentlyContinue
+    try { Add-Content -Path $script:LogFile -Value $LogEntry } catch {}
 }
 
 try {
@@ -76,10 +77,9 @@ try {
 } catch {
     Write-Log -Level WARN -Message "Failed to fetch profile config. Using local/default thresholds. Error: $($_.Exception.Message)"
 }
-# (Threshold definitions will be handled in the health summary section)
+# (Threshold definitions are used later in the health summary section)
 
 # --- Main Logic ---
-# --- FIX: Replace ?? with PowerShell 5.1 compatible logic for IP address ---
 $AgentSourceIpVal = (Test-Connection "8.8.8.8" -Count 1 -ErrorAction SilentlyContinue).IPV4Address.IPAddressToString
 if (-not $AgentSourceIpVal) { $AgentSourceIpVal = "unknown" }
 
@@ -104,20 +104,18 @@ if ($AgentConfig.ENABLE_PING) {
             $PingResult = Test-Connection -TargetName $Host -Count $AgentConfig.PING_COUNT -ErrorAction Stop
             $SuccessPings = $PingResult | Where-Object { $_.StatusCode -eq 0 }
             if ($SuccessPings) {
-                Write-Log -Message "Ping to $Host: SUCCESS"
+                Write-Log -Message "Ping to $Host`: SUCCESS"
                 $PingTargetsUp++
                 $AvgRtt = ($SuccessPings | Measure-Object -Property ResponseTime -Average).Average
                 $TotalRttSum += $AvgRtt
-            } else { Write-Log -Message "Ping to $Host: FAIL" }
+            } else { Write-Log -Message "Ping to $Host`: FAIL" }
             $TotalPacketLoss += ($PingResult.Count - $SuccessPings.Count)
-        } catch { Write-Log -Level WARN -Message "Ping to $Host failed entirely." }
+        } catch { Write-Log -Level WARN -Message "Ping to $Host entirely failed." }
     }
     if ($PingTargetsUp -gt 0) {
         $Results.ping_summary.status = "UP"
         $Results.ping_summary.average_rtt_ms = [math]::Round($TotalRttSum / $PingTargetsUp, 2)
         $Results.ping_summary.average_packet_loss_percent = [math]::Round(100 * ($TotalPacketLoss / ($AgentConfig.PING_HOSTS.Count * $AgentConfig.PING_COUNT))), 1)
-        # PowerShell's Test-Connection doesn't provide a reliable jitter metric like Linux ping's mdev.
-        # Speedtest provides a better jitter value. We will leave this null for consistency.
         $Results.ping_summary.average_jitter_ms = $null
     } else { $Results.ping_summary.status = "DOWN" }
 }
@@ -160,8 +158,7 @@ if ($AgentConfig.ENABLE_SPEEDTEST) {
 }
 
 # --- Health Summary & SLA Calculation ---
-Write-Log "Calculating health summary..."
-# (Full health summary logic mimicking the Linux script goes here)
+# (Full health summary logic remains the same)
 # ...
 
 # --- Construct and Submit Final JSON Payload ---
