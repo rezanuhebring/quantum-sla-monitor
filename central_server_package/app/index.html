@@ -94,7 +94,7 @@
 
     <script>
         const API_URL = 'get_sla_stats.php';
-        let rttChart = null, speedChart = null, refreshIntervalTimer = null;
+        let rttChartInstance = null, speedChartInstance = null, refreshIntervalTimer = null;
 
         const loader = document.getElementById('loader');
         const profileSelector = document.getElementById('isp-profile-selector');
@@ -124,7 +124,11 @@
                 refreshIntervalTimer = setInterval(() => fetchAndUpdateDashboard(profileSelector.value), refreshMs);
             } catch (error) {
                 console.error("Failed to render dashboard data:", error);
-                document.body.innerHTML = `<div style="text-align:center;padding:50px; color: var(--text-color);"><h1>Error</h1><p>Could not load dashboard data.</p><pre>${error.message}</pre></div>`;
+                const currentAgentId = new URLSearchParams(window.location.search).get('isp_id');
+                const errorMessage = `Could not load dashboard data. ${error.message}.`;
+                detailView.innerHTML = `<h2 style="color:var(--red)">Error</h2><p>${errorMessage}</p><p><a href="./">Return to summary view</a></p>`;
+                summaryView.classList.add('hidden');
+                detailView.classList.remove('hidden');
             } finally {
                 loader.style.display = 'none';
             }
@@ -132,7 +136,7 @@
 
         function updateDashboardUI(data, agentId) {
             updateProfileSelector(data.isp_profiles, agentId);
-            setText('last-checked', new Date().toLocaleString());
+            setText('last-checked', `Last Update: ${new Date().toLocaleString()}`);
 
             if (agentId) {
                 summaryView.classList.add('hidden');
@@ -168,20 +172,16 @@
             
             data.isp_profiles.forEach(profile => {
                 if (!profile.is_active) return;
-                
                 const status = data.all_agent_status[profile.id];
                 const statusClass = status?.overall_connectivity?.toLowerCase() || 'unknown';
                 const rtt = status?.avg_rtt_ms !== null ? `${status.avg_rtt_ms}ms` : 'N/A';
                 const loss = status?.avg_loss_percent !== null ? `${status.avg_loss_percent}%` : 'N/A';
-
                 const li = document.createElement('li');
                 li.className = `status-${statusClass}`;
                 li.innerHTML = `<div class="agent-header"><a href="#" class="agent-name" data-id="${profile.id}">${profile.agent_name}</a><span class="status-dot ${statusClass}"></span></div><div class="agent-metrics"><span>RTT: <strong>${rtt}</strong></span><span>Loss: <strong>${loss}</strong></span><span style="font-size:0.8em; opacity:0.7;">Last Check: ${status ? new Date(status.timestamp).toLocaleTimeString() : 'N/A'}</span></div>`;
-                
                 if (profile.agent_type === 'ISP') ispList.appendChild(li);
                 else clientList.appendChild(li);
             });
-
             if(ispList.children.length === 0) ispList.innerHTML = '<li>No active ISP agents found.</li>';
             if(clientList.children.length === 0) clientList.innerHTML = '<li>No active Client agents found.</li>';
         }
@@ -189,17 +189,8 @@
         function updateDetailView(data) {
             setText('agent-name-header', data.current_isp_name);
             const latest = data.latest_check;
-            
-            setText('ping-status', latest?.overall_connectivity);
-            setText('ping-rtt', latest?.avg_rtt_ms, ' ms');
-            setText('ping-loss', latest?.avg_loss_percent, ' %');
-            setText('ping-jitter', latest?.avg_jitter_ms, ' ms');
-
-            setText('speed-status', latest?.speedtest_status);
-            setText('speed-dl', latest?.speedtest_download_mbps, ' Mbps');
-            setText('speed-ul', latest?.speedtest_upload_mbps, ' Mbps');
-            setText('speed-ping', latest?.speedtest_ping_ms, ' ms');
-
+            setText('ping-status', latest?.overall_connectivity); setText('ping-rtt', latest?.avg_rtt_ms, ' ms'); setText('ping-loss', latest?.avg_loss_percent, ' %'); setText('ping-jitter', latest?.avg_jitter_ms, ' ms');
+            setText('speed-status', latest?.speedtest_status); setText('speed-dl', latest?.speedtest_download_mbps, ' Mbps'); setText('speed-ul', latest?.speedtest_upload_mbps, ' Mbps'); setText('speed-ping', latest?.speedtest_ping_ms, ' ms');
             const slaContainer = document.getElementById('historical-sla-data');
             slaContainer.innerHTML = `<h3>SLA (Target: ${data.target_sla_percentage}%)</h3>`;
             if (data.periods && Object.keys(data.periods).length > 0) {
@@ -213,7 +204,6 @@
             } else {
                 slaContainer.innerHTML += '<p>No historical data available.</p>';
             }
-            
             renderRttChart(data.rtt_chart_data);
             renderSpeedTestChart(data.speed_chart_data);
         }
@@ -224,19 +214,7 @@
             const isDark = document.body.classList.contains('dark-mode');
             const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
             const fontColor = isDark ? '#e0e0e0' : '#333';
-            
-            rttChartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: data.map(d => new Date(d.timestamp)),
-                    datasets: [
-                        { label: 'Avg RTT (ms)', data: data.map(d => d.avg_rtt_ms), borderColor: 'rgb(54, 162, 235)', backgroundColor: 'rgba(54, 162, 235, 0.2)', yAxisID: 'y', tension: 0.4, fill: true },
-                        { label: 'Avg Jitter (ms)', data: data.map(d => d.avg_jitter_ms), borderColor: 'rgb(255, 159, 64)', backgroundColor: 'rgba(255, 159, 64, 0.2)', yAxisID: 'y2', tension: 0.4, fill: true},
-                        { label: 'Packet Loss (%)', data: data.map(d => d.avg_loss_percent), borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.5)', type: 'bar', yAxisID: 'y1' }
-                    ]
-                },
-                options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'PPpp' }, grid: {color: gridColor}, ticks: {color: fontColor} }, y: { beginAtZero: true, position: 'left', title: { display: true, text: 'RTT (ms)', color: fontColor }, grid: {color: gridColor}, ticks: {color: fontColor} }, y1: { type: 'linear', display: true, position: 'right', beginAtZero: true, max: 100, title: { display: true, text: '% Loss', color: fontColor }, grid: { drawOnChartArea: false }, ticks: {color: fontColor} }, y2: { type: 'linear', display: true, position: 'right', beginAtZero: true, title: { display: true, text: 'Jitter (ms)', color: fontColor }, grid: { drawOnChartArea: false }, ticks: {color: fontColor} } }, plugins: { legend: { labels: { color: fontColor } } } }
-            });
+            rttChartInstance = new Chart(ctx, { type: 'line', data: { labels: data.map(d => new Date(d.timestamp)), datasets: [ { label: 'Avg RTT (ms)', data: data.map(d => d.avg_rtt_ms), borderColor: 'rgb(54, 162, 235)', backgroundColor: 'rgba(54, 162, 235, 0.2)', yAxisID: 'y', tension: 0.4, fill: true }, { label: 'Avg Jitter (ms)', data: data.map(d => d.avg_jitter_ms), borderColor: 'rgb(255, 159, 64)', backgroundColor: 'rgba(255, 159, 64, 0.2)', yAxisID: 'y2', tension: 0.4, fill: true}, { label: 'Packet Loss (%)', data: data.map(d => d.avg_loss_percent), borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.5)', type: 'bar', yAxisID: 'y1' } ] }, options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'PPpp' }, grid: {color: gridColor}, ticks: {color: fontColor} }, y: { beginAtZero: true, position: 'left', title: { display: true, text: 'RTT (ms)', color: fontColor }, grid: {color: gridColor}, ticks: {color: fontColor} }, y1: { type: 'linear', display: true, position: 'right', beginAtZero: true, max: 100, title: { display: true, text: '% Loss', color: fontColor }, grid: { drawOnChartArea: false }, ticks: {color: fontColor} }, y2: { type: 'linear', display: true, position: 'right', beginAtZero: true, title: { display: true, text: 'Jitter (ms)', color: fontColor }, grid: { drawOnChartArea: false }, ticks: {color: fontColor} } }, plugins: { legend: { labels: { color: fontColor } } } } });
         }
         
         function renderSpeedTestChart(data) {
@@ -245,29 +223,40 @@
             const isDark = document.body.classList.contains('dark-mode');
             const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
             const fontColor = isDark ? '#e0e0e0' : '#333';
-
-            speedChartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: data.map(d => new Date(d.timestamp)),
-                    datasets: [
-                        { label: 'Download (Mbps)', data: data.map(d => d.speedtest_download_mbps), borderColor: 'rgb(75, 192, 192)', backgroundColor: 'rgba(75, 192, 192, 0.2)', tension: 0.4, fill: true },
-                        { label: 'Upload (Mbps)', data: data.map(d => d.speedtest_upload_mbps), borderColor: 'rgb(153, 102, 255)', backgroundColor: 'rgba(153, 102, 255, 0.2)', tension: 0.4, fill: true }
-                    ]
-                },
-                options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'PPpp' }, grid: {color: gridColor}, ticks: {color: fontColor} }, y: { beginAtZero: true, title: { display: true, text: 'Mbps', color: fontColor }, grid: {color: gridColor}, ticks: {color: fontColor} } }, plugins: { legend: { labels: { color: fontColor } } } }
-            });
+            speedChartInstance = new Chart(ctx, { type: 'line', data: { labels: data.map(d => new Date(d.timestamp)), datasets: [ { label: 'Download (Mbps)', data: data.map(d => d.speedtest_download_mbps), borderColor: 'rgb(75, 192, 192)', backgroundColor: 'rgba(75, 192, 192, 0.2)', tension: 0.4, fill: true }, { label: 'Upload (Mbps)', data: data.map(d => d.speedtest_upload_mbps), borderColor: 'rgb(153, 102, 255)', backgroundColor: 'rgba(153, 102, 255, 0.2)', tension: 0.4, fill: true } ] }, options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'PPpp' }, grid: {color: gridColor}, ticks: {color: fontColor} }, y: { beginAtZero: true, title: { display: true, text: 'Mbps', color: fontColor }, grid: {color: gridColor}, ticks: {color: fontColor} } }, plugins: { legend: { labels: { color: fontColor } } } } });
         }
         
-        function applyTheme(isDark) { document.body.classList.toggle('dark-mode', isDark); themeToggle.checked = isDark; fetchAndUpdateDashboard(profileSelector.value || null); }
+        function applyTheme(isDark) {
+            document.body.classList.toggle('dark-mode', isDark);
+            themeToggle.checked = isDark;
+            // FIX: Use correct global variable names
+            const charts = [rttChartInstance, speedChartInstance];
+            const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+            const fontColor = isDark ? '#e0e0e0' : '#333';
+            charts.forEach(chart => {
+                if (chart) {
+                    chart.options.scales.x.grid.color = gridColor;
+                    chart.options.scales.y.grid.color = gridColor;
+                    chart.options.scales.x.ticks.color = fontColor;
+                    chart.options.scales.y.ticks.color = fontColor;
+                    if(chart.options.scales.y1) { chart.options.scales.y1.ticks.color = fontColor; chart.options.scales.y1.grid.color = gridColor; chart.options.scales.y1.title.color = fontColor; }
+                    if(chart.options.scales.y2) { chart.options.scales.y2.ticks.color = fontColor; chart.options.scales.y2.grid.color = gridColor; chart.options.scales.y2.title.color = fontColor; }
+                    chart.options.plugins.legend.labels.color = fontColor;
+                    chart.update();
+                }
+            });
+        }
         
         document.addEventListener('click', (e) => { if (e.target?.classList.contains('agent-name')) { e.preventDefault(); const agentId = e.target.dataset.id; profileSelector.value = agentId; history.pushState({ agent_id: agentId }, '', `?isp_id=${agentId}`); fetchAndUpdateDashboard(agentId); }});
         profileSelector.addEventListener('change', (e) => { const agentId = e.target.value; const url = agentId ? `?isp_id=${agentId}` : './'; history.pushState({ agent_id: agentId }, '', url); fetchAndUpdateDashboard(agentId); });
         themeToggle.addEventListener('change', () => { localStorage.setItem('dark-mode', themeToggle.checked); applyTheme(themeToggle.checked); });
-
+        window.addEventListener('popstate', (event) => { const agentId = event.state ? event.state.agent_id : new URLSearchParams(window.location.search).get('isp_id'); fetchAndUpdateDashboard(agentId); });
         document.addEventListener('DOMContentLoaded', () => {
             const isDarkMode = localStorage.getItem('dark-mode') === 'true';
-            applyTheme(isDarkMode); // Applies theme first, then fetches data
+            themeToggle.checked = isDarkMode;
+            document.body.classList.toggle('dark-mode', isDarkMode);
+            const initialAgentId = new URLSearchParams(window.location.search).get('isp_id');
+            fetchAndUpdateDashboard(initialAgentId);
         });
     </script>
 </body>
