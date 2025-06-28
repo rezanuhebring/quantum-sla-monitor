@@ -3,13 +3,14 @@
 .SYNOPSIS
     Internet SLA Monitoring Agent for Windows (PowerShell) - FINAL PRODUCTION VERSION
 .DESCRIPTION
-    This script is the definitive, fully debugged agent. It includes a robust try/finally
-    lock file mechanism, clear error logging, and the complete logic for all monitoring tests.
+    This script is the definitive, fully debugged agent. It fixes the configuration file
+    parsing error and includes all previous fixes.
 #>
 
 # --- Configuration & Setup ---
 $AgentScriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
-$AgentConfigFile = Join-Path -Path $AgentScriptDirectory -ChildPath "agent_config.ps1"
+# *** FIX: Corrected filename from .ps1 to .psd1 ***
+$AgentConfigFile = Join-Path -Path $AgentScriptDirectory -ChildPath "agent_config.psd1"
 $LogFile = Join-Path -Path $AgentScriptDirectory -ChildPath "internet_monitor_agent_windows.log"
 $LockFile = Join-Path -Path $env:TEMP -ChildPath "sla_monitor_agent.lock"
 
@@ -46,7 +47,7 @@ try {
         $script:AgentConfig = Import-PowerShellDataFile -Path $AgentConfigFile
     } catch {
         $script:AgentConfig = @{ AGENT_IDENTIFIER = "UnconfiguredAgent" }
-        Write-Log -Level ERROR -Message "CRITICAL: Failed to load config '$AgentConfigFile'. Error: $($_.Exception.Message). Exiting."
+        Write-Log -Level ERROR -Message "CRITICAL: Failed to load config '$AgentConfigFile'. It must exist and be a valid .psd1 file. Error: $($_.Exception.Message). Exiting."
         exit 1
     }
     
@@ -74,43 +75,62 @@ try {
     if (-not $AgentSourceIpVal) { $AgentSourceIpVal = "unknown" }
 
     $Results = [ordered]@{
-        timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"); agent_identifier = $AgentConfig.AGENT_IDENTIFIER; agent_type = $AgentConfig.AGENT_TYPE; agent_hostname = $env:COMPUTERNAME; agent_source_ip = $AgentSourceIpVal
-        ping_summary = @{}; dns_resolution = @{}; http_check = @{}; speed_test = @{}
+        timestamp           = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        agent_identifier    = $AgentConfig.AGENT_IDENTIFIER
+        agent_type          = $AgentConfig.AGENT_TYPE
+        agent_hostname      = $env:COMPUTERNAME
+        agent_source_ip     = $AgentSourceIpVal
+        ping_summary        = @{ status = "N/A" }
+        dns_resolution      = @{ status = "N/A" }
+        http_check          = @{ status = "N/A" }
+        speed_test          = @{ status = "SKIPPED" }
     }
 
     if ($ENABLE_PING) {
-        Write-Log -Message "Performing ping tests..."; $PingHosts = $AgentConfig.PING_HOSTS; $PingCount = $AgentConfig.PING_COUNT; $TotalRttSum = 0.0; $SuccessfulReplies = @(); $TotalPingsSent = 0; $PingTargetsUp = 0;
+        Write-Log -Message "Performing ping tests..."
+        $PingHosts = $AgentConfig.PING_HOSTS
+        $PingCount = $AgentConfig.PING_COUNT
+        $TotalRttSum = 0.0; $SuccessfulReplies = @(); $TotalPingsSent = 0; $PingTargetsUp = 0;
         foreach ($pingTarget in $PingHosts) {
             $TotalPingsSent += $PingCount
             try {
                 if (Test-Connection -TargetName $pingTarget -Count 1 -Quiet -ErrorAction SilentlyContinue) {
-                    Write-Log -Message "Ping to ${pingTarget}: SUCCESS"; $PingTargetsUp++; $PingResult = Test-Connection -TargetName $pingTarget -Count $PingCount -ErrorAction Stop; $SuccessPings = $PingResult | Where-Object { $_.StatusCode -eq 0 }; if ($SuccessPings) { $SuccessfulReplies += $SuccessPings.ResponseTime }
+                    Write-Log -Message "Ping to ${pingTarget}: SUCCESS"
+                    $PingTargetsUp++
+                    $PingResult = Test-Connection -TargetName $pingTarget -Count $PingCount -ErrorAction Stop
+                    $SuccessPings = $PingResult | Where-Object { $_.StatusCode -eq 0 }
+                    if ($SuccessPings) { $SuccessfulReplies += $SuccessPings.ResponseTime }
                 } else { Write-Log -Message "Ping to ${pingTarget}: FAIL" }
-            } catch { Write-Log -Level WARN -Message "Ping test to ${pingTarget} failed. Exception: $($_.Exception.Message)" }
+            } catch { Write-Log -Level WARN -Message "Ping test to ${pingTarget} encountered an exception." }
         }
-        if ($PingTargetsUp -gt 0) { $Results.ping_summary.status = "UP"; if ($SuccessfulReplies.Count -gt 0) { $Results.ping_summary.average_rtt_ms = [math]::Round(($SuccessfulReplies | Measure-Object -Average).Average, 2) }; $LossCount = $TotalPingsSent - $SuccessfulReplies.Count; $Results.ping_summary.average_packet_loss_percent = [math]::Round(100 * ($LossCount / $TotalPingsSent), 1); $Results.ping_summary.average_jitter_ms = $null;
+        if ($PingTargetsUp -gt 0) {
+            $Results.ping_summary.status = "UP"
+            if ($SuccessfulReplies.Count -gt 0) { $Results.ping_summary.average_rtt_ms = [math]::Round(($SuccessfulReplies | Measure-Object -Average).Average, 2) }
+            $LossCount = $TotalPingsSent - $SuccessfulReplies.Count
+            $Results.ping_summary.average_packet_loss_percent = [math]::Round(100 * ($LossCount / $TotalPingsSent), 1)
+            $Results.ping_summary.average_jitter_ms = $null
         } else { $Results.ping_summary.status = "DOWN" }
     }
 
     if ($ENABLE_DNS) {
-        Write-Log "Performing DNS resolution test..."; try { $DnsTime = Measure-Command { Resolve-DnsName -Name $AgentConfig.DNS_CHECK_HOST -Type A -ErrorAction Stop -DnsOnly }; $Results.dns_resolution = @{ status = "OK"; resolve_time_ms = [int]$DnsTime.TotalMilliseconds } } catch { $Results.dns_resolution = @{ status = "FAILED"; resolve_time_ms = $null } }
+        Write-Log "Performing DNS resolution test...";
+        try { $DnsTime = Measure-Command { Resolve-DnsName -Name $AgentConfig.DNS_CHECK_HOST -Type A -ErrorAction Stop -DnsOnly }; $Results.dns_resolution = @{ status = "OK"; resolve_time_ms = [int]$DnsTime.TotalMilliseconds } } catch { $Results.dns_resolution = @{ status = "FAILED"; resolve_time_ms = $null } }
     }
 
     if ($ENABLE_HTTP) {
-        Write-Log "Performing HTTP check..."; try { $HttpTime = Measure-Command { $HttpResponse = Invoke-WebRequest -Uri $AgentConfig.HTTP_CHECK_URL -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop }; $Results.http_check = @{ status = "OK"; response_code = $HttpResponse.StatusCode; total_time_s = [math]::Round($HttpTime.TotalSeconds, 3) } } catch { $Results.http_check = @{ status = "FAILED_REQUEST"; response_code = $null; total_time_s = $null } }
+        Write-Log "Performing HTTP check...";
+        try { $HttpTime = Measure-Command { $HttpResponse = Invoke-WebRequest -Uri $AgentConfig.HTTP_CHECK_URL -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop }; $Results.http_check = @{ status = "OK"; response_code = $HttpResponse.StatusCode; total_time_s = [math]::Round($HttpTime.TotalSeconds, 3) } } catch { $Results.http_check = @{ status = "FAILED_REQUEST"; response_code = $null; total_time_s = $null } }
     }
 
     if ($ENABLE_SPEEDTEST) {
         Write-Log "Performing speedtest with speedtest.exe..."; $Results.speed_test = @{ status = "SKIPPED_NO_CMD" };
         if (Get-Command speedtest.exe -ErrorAction SilentlyContinue) {
-            try {
-                $SpeedtestJson = speedtest.exe --format=json --accept-license --accept-gdpr | ConvertFrom-Json;
-                $Results.speed_test = @{ status = "COMPLETED"; download_mbps = [math]::Round($SpeedtestJson.download.bandwidth * 8 / 1000000, 2); upload_mbps = [math]::Round($SpeedtestJson.upload.bandwidth * 8 / 1000000, 2); ping_ms = [math]::Round($SpeedtestJson.ping.latency, 3); jitter_ms = [math]::Round($SpeedtestJson.ping.jitter, 3) }
-            } catch { Write-Log -Level WARN -Message "Speedtest command failed. Error: $($_.Exception.Message)"; $Results.speed_test = @{ status = "FAILED_EXEC" } }
+            try { $SpeedtestJson = speedtest.exe --format=json --accept-license --accept-gdpr | ConvertFrom-Json; $Results.speed_test = @{ status = "COMPLETED"; download_mbps = [math]::Round($SpeedtestJson.download.bandwidth * 8 / 1000000, 2); upload_mbps = [math]::Round($SpeedtestJson.upload.bandwidth * 8 / 1000000, 2); ping_ms = [math]::Round($SpeedtestJson.ping.latency, 3); jitter_ms = [math]::Round($SpeedtestJson.ping.jitter, 3) } }
+            catch { Write-Log -Level WARN -Message "Speedtest command failed. Error: $($_.Exception.Message)"; $Results.speed_test = @{ status = "FAILED_EXEC" } }
         } else { Write-Log -Level WARN -Message "speedtest.exe not found in PATH." }
     }
     
-    # --- Health Summary & SLA Calculation ---
+    # --- Health Summary & SLA Calculation (Full logic is now included) ---
     Write-Log "Calculating health summary..."; $HealthSummary = "UNKNOWN"; $SlaMetInterval = 0;
     function Get-Threshold($Profile, $Config, $Key, $Default) { if ($Profile.$Key -ne $null) { return [double]$Profile.$Key } elseif ($Config.ContainsKey($Key)) { return [double]$Config.$Key } else { return [double]$Default } }
     $RttDegraded = Get-Threshold $ProfileConfig $AgentConfig "rtt_degraded" 100; $RttPoor = Get-Threshold $ProfileConfig $AgentConfig "rtt_poor" 250; $LossDegraded = Get-Threshold $ProfileConfig $AgentConfig "loss_degraded" 2; $LossPoor = Get-Threshold $ProfileConfig $AgentConfig "loss_poor" 10;
@@ -140,10 +160,7 @@ try {
         $SubmitHeaders = @{"Content-Type" = "application/json"}; if ($AgentConfig.CENTRAL_API_KEY) { $SubmitHeaders."X-API-Key" = $AgentConfig.CENTRAL_API_KEY }
         Invoke-RestMethod -Uri $AgentConfig.CENTRAL_API_URL -Method Post -Body $JsonPayload -Headers $SubmitHeaders -TimeoutSec 60
         Write-Log -Message "Data successfully submitted."
-    } catch {
-        $ErrorMessage = "Failed to submit data. Error: $($_.Exception.Message)"; if ($_.Exception.Response) { $ErrorMessage += " | HTTP Status: $($_.Exception.Response.StatusCode.value__)" };
-        Write-Log -Level ERROR -Message $ErrorMessage
-    }
+    } catch { $ErrorMessage = "Failed to submit data. Error: $($_.Exception.Message)"; if ($_.Exception.Response) { $ErrorMessage += " | HTTP Status: $($_.Exception.Response.StatusCode.value__)" }; Write-Log -Level ERROR -Message $ErrorMessage }
     Write-Log -Message "Agent monitor script finished."
 
 } finally {
