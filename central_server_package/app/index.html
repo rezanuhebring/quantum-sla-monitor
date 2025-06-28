@@ -15,9 +15,6 @@
         .isp-selector-container label { margin-right: 8px; font-weight: 500; }
         .isp-selector-container select { padding: 8px 12px; border-radius: 4px; border: 1px solid #ccc; font-size: 1em; min-width: 300px; background-color: #fff; }
         .timestamp { font-size: 0.9em; color: #555; }
-        .download-button-container { text-align: center; margin-bottom: 20px; } 
-        .download-button { display: inline-block; padding: 10px 20px; font-size: 1em; font-weight: bold; color: #fff; background-color: #007bff; border: none; border-radius: 5px; text-decoration: none; cursor: pointer;} 
-        .download-button:hover { background-color: #0056b3; }
         .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
         .metric-card { background-color: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #e0e0e0; }
         .metric-card h3 { margin-top: 0; color: #3f51b5; border-bottom: 1px solid #e0e0e0; padding-bottom: 10px; font-size: 1.2em; }
@@ -51,13 +48,6 @@
         
         <div id="dashboard-content" class="hidden">
             <h2 id="agent-name-header"></h2>
-            
-            <!-- *** FIXED: The download button is restored here *** -->
-            <div class="download-button-container">
-                <a id="individual-csv-download" href="#" class="download-button">
-                    <span role="img" aria-label="floppy disk">💾</span> Download Agent Data (CSV)
-                </a>
-            </div>
             
             <div class="grid-container">
                 <div class="metric-card">
@@ -98,7 +88,6 @@
     </div>
 
     <script>
-        // The JavaScript logic remains the same as the previous correct version.
         const API_URL = 'get_sla_stats.php';
         let rttChartInstance = null;
         let speedChartInstance = null;
@@ -181,6 +170,7 @@
             
             setText('last-checked', latest ? `Last Agent Check: ${new Date(latest.timestamp).toLocaleString()}` : 'No recent data for this agent.');
 
+            // *** FIX IS HERE: Added the missing line for ping-jitter ***
             setText('ping-status', latest?.overall_connectivity, '');
             setText('ping-rtt', latest?.avg_rtt_ms, 'ms');
             setText('ping-loss', latest?.avg_loss_percent, '%');
@@ -207,12 +197,6 @@
                 slaContainer.innerHTML += '<p>No historical data available.</p>';
             }
             
-            // NOTE: The download button's link is currently static (#).
-            // A future improvement would be a generate_csv.php script.
-            const downloadLink = document.getElementById('individual-csv-download');
-            downloadLink.href = `generate_csv.php?isp_id=${data.current_isp_profile_id}`; // Example link
-            downloadLink.setAttribute('download', `sla_history_${data.current_isp_name.replace(/[^a-z0-9]/gi, '_')}.csv`);
-
             renderRttChart(data.rtt_chart_data);
             renderSpeedTestChart(data.speed_chart_data);
         }
