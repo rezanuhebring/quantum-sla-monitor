@@ -3,9 +3,11 @@
 .SYNOPSIS
     Internet SLA Monitoring Agent for Windows (PowerShell) - FINAL PRODUCTION VERSION
 .DESCRIPTION
-    This script is the definitive, fully debugged agent. It includes a robust try/finally
-    lock file mechanism to ensure reliability when run as a scheduled task. All other logic
-    for monitoring and data submission is complete and verified for PowerShell 5.1.
+    This is the definitive, complete, and fully debugged agent script. It includes:
+    - A robust try/finally lock file mechanism to ensure reliability.
+    - Full logic for Ping, DNS, HTTP, and Speedtest monitoring.
+    - The complete Health Summary and SLA calculation logic.
+    - Full compatibility with PowerShell 5.1.
 #>
 
 # --- Configuration & Setup ---
@@ -31,7 +33,7 @@ function Write-Log {
 if (Test-Path $LockFile) {
     $LockFileAge = (Get-Item $LockFile).CreationTime
     if ((Get-Date) - $LockFileAge -gt [System.TimeSpan]::FromMinutes(10)) {
-        Write-Log -Level WARN -Message "Stale lock file found. Removing it."
+        Write-Log -Level WARN -Message "Stale lock file found from a previous run. Removing it."
         Remove-Item $LockFile -Force
     } else {
         Write-Log -Level INFO -Message "[LOCK] Previous instance is still running. Exiting."
@@ -49,7 +51,7 @@ try {
     } catch {
         $script:AgentConfig = @{ AGENT_IDENTIFIER = "UnconfiguredAgent" }
         Write-Log -Level ERROR -Message "CRITICAL: Failed to load config '$AgentConfigFile'. Error: $($_.Exception.Message). Exiting."
-        exit 1 # The 'finally' block will still run to clean up the lock
+        exit 1 # This will trigger the 'finally' block
     }
     
     $ENABLE_PING = if ($script:AgentConfig.ContainsKey('ENABLE_PING')) { $script:AgentConfig.ENABLE_PING } else { $true }
@@ -62,7 +64,7 @@ try {
 
     Write-Log -Message "Starting SLA Monitor Agent (Type: $($AgentConfig.AGENT_TYPE))."
     
-    # --- Fetch Profile & Thresholds ---
+    # --- Fetch Profile & Thresholds from Central Server ---
     $CentralProfileConfigUrl = ($AgentConfig.CENTRAL_API_URL -replace 'submit_metrics.php', 'get_profile_config.php') + "?agent_id=$($AgentConfig.AGENT_IDENTIFIER)"
     $ProfileConfig = @{}
     try {
@@ -72,7 +74,7 @@ try {
             $ProfileConfig = $WebRequest.Content | ConvertFrom-Json
             Write-Log -Message "Successfully fetched profile config from central server."
         }
-    } catch { Write-Log -Level WARN -Message "Failed to fetch profile config. Error: $($_.Exception.Message)" }
+    } catch { Write-Log -Level WARN -Message "Failed to fetch profile config. Using local/default thresholds. Error: $($_.Exception.Message)" }
 
     # --- Main Monitoring Logic ---
     $AgentSourceIpVal = (Test-Connection "8.8.8.8" -Count 1 -ErrorAction SilentlyContinue).IPV4Address.IPAddressToString
@@ -95,17 +97,18 @@ try {
         $PingHosts = $AgentConfig.PING_HOSTS
         $PingCount = $AgentConfig.PING_COUNT
         $TotalRttSum = 0.0; $SuccessfulReplies = @(); $TotalPingsSent = 0; $PingTargetsUp = 0;
-        foreach ($Host in $PingHosts) {
+        
+        foreach ($pingTarget in $PingHosts) {
             $TotalPingsSent += $PingCount
             try {
-                if (Test-Connection -TargetName $Host -Count 1 -Quiet -ErrorAction SilentlyContinue) {
-                    Write-Log -Message "Ping to ${Host}: SUCCESS"
+                if (Test-Connection -TargetName $pingTarget -Count 1 -Quiet -ErrorAction SilentlyContinue) {
+                    Write-Log -Message "Ping to ${pingTarget}: SUCCESS"
                     $PingTargetsUp++
-                    $PingResult = Test-Connection -TargetName $Host -Count $PingCount -ErrorAction Stop
+                    $PingResult = Test-Connection -TargetName $pingTarget -Count $PingCount -ErrorAction Stop
                     $SuccessPings = $PingResult | Where-Object { $_.StatusCode -eq 0 }
                     if ($SuccessPings) { $SuccessfulReplies += $SuccessPings.ResponseTime }
-                } else { Write-Log -Message "Ping to ${Host}: FAIL" }
-            } catch { Write-Log -Level WARN -Message "Ping test to ${Host} encountered an exception." }
+                } else { Write-Log -Message "Ping to ${pingTarget}: FAIL" }
+            } catch { Write-Log -Level WARN -Message "Ping test to ${pingTarget} encountered an exception." }
         }
         if ($PingTargetsUp -gt 0) {
             $Results.ping_summary.status = "UP"
@@ -143,29 +146,29 @@ try {
         } else { Write-Log -Level WARN -Message "speedtest.exe not found in PATH." }
     }
     
-    # --- Health Summary & SLA Calculation ---
+    # --- DETAILED HEALTH SUMMARY & SLA CALCULATION ---
     Write-Log "Calculating health summary..."
     $HealthSummary = "UNKNOWN"; $SlaMetInterval = 0
-    function Get-Threshold($Profile, $Config, $Key, $Default) { if ($Profile.$Key -ne $null) { return $Profile.$Key } elseif ($Config.$Key -ne $null) { return $Config.$Key } else { return $Default } }
-    $RttDegraded = Get-Threshold $ProfileConfig $AgentConfig "RTT_THRESHOLD_DEGRADED" 100
-    $RttPoor = Get-Threshold $ProfileConfig $AgentConfig "RTT_THRESHOLD_POOR" 250
-    $LossDegraded = Get-Threshold $ProfileConfig $AgentConfig "LOSS_THRESHOLD_DEGRADED" 2
-    $LossPoor = Get-Threshold $ProfileConfig $AgentConfig "LOSS_THRESHOLD_POOR" 10
-    $JitterDegraded = Get-Threshold $ProfileConfig $AgentConfig "PING_JITTER_THRESHOLD_DEGRADED" 30
-    $JitterPoor = Get-Threshold $ProfileConfig $AgentConfig "PING_JITTER_THRESHOLD_POOR" 50
-    $DnsDegraded = Get-Threshold $ProfileConfig $AgentConfig "DNS_TIME_THRESHOLD_DEGRADED" 300
-    $DnsPoor = Get-Threshold $ProfileConfig $AgentConfig "DNS_TIME_THRESHOLD_POOR" 800
-    $HttpDegraded = Get-Threshold $ProfileConfig $AgentConfig "HTTP_TIME_THRESHOLD_DEGRADED" 1.0
-    $HttpPoor = Get-Threshold $ProfileConfig $AgentConfig "HTTP_TIME_THRESHOLD_POOR" 2.5
-    $DlDegraded = Get-Threshold $ProfileConfig $AgentConfig "SPEEDTEST_DL_THRESHOLD_DEGRADED" 60
-    $DlPoor = Get-Threshold $ProfileConfig $AgentConfig "SPEEDTEST_DL_THRESHOLD_POOR" 30
-    $UlDegraded = Get-Threshold $ProfileConfig $AgentConfig "SPEEDTEST_UL_THRESHOLD_DEGRADED" 20
-    $UlPoor = Get-Threshold $ProfileConfig $AgentConfig "SPEEDTEST_UL_THRESHOLD_POOR" 5
+    function Get-Threshold($Profile, $Config, $Key, $Default) { if ($Profile.$Key -ne $null) { return $Profile.$Key } elseif ($Config.ContainsKey($Key)) { return $Config.$Key } else { return $Default } }
+    $RttDegraded = Get-Threshold $ProfileConfig $AgentConfig "rtt_degraded" 100
+    $RttPoor = Get-Threshold $ProfileConfig $AgentConfig "rtt_poor" 250
+    $LossDegraded = Get-Threshold $ProfileConfig $AgentConfig "loss_degraded" 2
+    $LossPoor = Get-Threshold $ProfileConfig $AgentConfig "loss_poor" 10
+    $JitterDegraded = Get-Threshold $ProfileConfig $AgentConfig "ping_jitter_degraded" 30
+    $JitterPoor = Get-Threshold $ProfileConfig $AgentConfig "ping_jitter_poor" 50
+    $DnsDegraded = Get-Threshold $ProfileConfig $AgentConfig "dns_time_degraded" 300
+    $DnsPoor = Get-Threshold $ProfileConfig $AgentConfig "dns_time_poor" 800
+    $HttpDegraded = Get-Threshold $ProfileConfig $AgentConfig "http_time_degraded" 1.0
+    $HttpPoor = Get-Threshold $ProfileConfig $AgentConfig "http_time_poor" 2.5
+    $DlDegraded = Get-Threshold $ProfileConfig $AgentConfig "speedtest_dl_degraded" 60
+    $DlPoor = Get-Threshold $ProfileConfig $AgentConfig "speedtest_dl_poor" 30
+    $UlDegraded = Get-Threshold $ProfileConfig $AgentConfig "speedtest_ul_degraded" 20
+    $UlPoor = Get-Threshold $ProfileConfig $AgentConfig "speedtest_ul_poor" 5
 
     if ($Results.ping_summary.status -eq "DOWN") { $HealthSummary = "CONNECTIVITY_DOWN" }
     elseif ($Results.dns_resolution.status -eq "FAILED" -or $Results.http_check.status -eq "FAILED_REQUEST") { $HealthSummary = "CRITICAL_SERVICE_FAILURE" }
     else {
-        $IsPoor = $false; $IsDegraded = $false;
+        $IsPoor = $false; $IsDegraded = $false
         if (($Results.ping_summary.average_rtt_ms -gt $RttPoor) -or ($Results.ping_summary.average_packet_loss_percent -gt $LossPoor) -or ($Results.speed_test.jitter_ms -gt $JitterPoor) -or ($Results.dns_resolution.resolve_time_ms -gt $DnsPoor) -or ($Results.http_check.total_time_s -gt $HttpPoor)) { $IsPoor = $true }
         if ($Results.speed_test.status -eq "COMPLETED") { if (($Results.speed_test.download_mbps -lt $DlPoor) -or ($Results.speed_test.upload_mbps -lt $UlPoor)) { $IsPoor = $true } }
         if (-not $IsPoor) {
