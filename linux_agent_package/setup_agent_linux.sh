@@ -1,7 +1,6 @@
 #!/bin/bash
-
 # setup_agent_linux.sh - FINAL PRODUCTION VERSION
-# Includes automated permission fix for the 'ping' command.
+# Includes fix for cron job output redirection.
 
 # --- Configuration Variables ---
 MONITOR_SCRIPT_NAME="monitor_internet.sh"
@@ -42,7 +41,7 @@ else
     print_info "A speedtest command is already installed."
 fi
 
-# Accept license terms for whichever speedtest was installed
+# Accept license terms
 print_info "Attempting to accept Speedtest license terms..."
 if command -v speedtest &> /dev/null; then sudo speedtest --accept-license --accept-gdpr > /dev/null 2>&1; fi
 if command -v speedtest-cli &> /dev/null; then sudo speedtest-cli --accept-license --accept-gdpr > /dev/null 2>&1; fi
@@ -51,7 +50,6 @@ if command -v speedtest-cli &> /dev/null; then sudo speedtest-cli --accept-licen
 # Fix ping permissions for reliable cron execution
 print_info "Ensuring 'ping' has necessary permissions for non-interactive execution..."
 if command -v ping &> /dev/null; then
-    # The setuid bit allows the ping command to be run by any user/service with the permissions of the root owner.
     sudo chmod u+s $(which ping)
     print_info "Set 'setuid' permission on ping command to ensure cron job can run it."
 else
@@ -62,41 +60,38 @@ fi
 print_info "Creating script directory: ${MONITOR_SCRIPT_DIR}"
 sudo mkdir -p "${MONITOR_SCRIPT_DIR}"
 
-# Deploy config file ONLY if it doesn't already exist
 if [ ! -f "${CONFIG_FILE_PATH}" ]; then
     print_info "Copying agent configuration template to ${CONFIG_FILE_PATH}"
     sudo cp "./${AGENT_CONFIG_NAME}" "${CONFIG_FILE_PATH}"
-    sudo chown root:root "${CONFIG_FILE_PATH}"
-    sudo chmod 600 "${CONFIG_FILE_PATH}"
+    sudo chown root:root "${CONFIG_FILE_PATH}" && sudo chmod 600 "${CONFIG_FILE_PATH}"
 else
     print_warn "Config file ${CONFIG_FILE_PATH} already exists. Skipping copy to preserve user settings."
 fi
 
-# Deploy monitor script
 print_info "Copying agent monitoring script to ${MONITOR_SCRIPT_PATH}"
 sudo cp "./${MONITOR_SCRIPT_NAME}" "${MONITOR_SCRIPT_PATH}"
-sudo chmod +x "${MONITOR_SCRIPT_PATH}"
-sudo chown root:root "${MONITOR_SCRIPT_PATH}"
+sudo chmod +x "${MONITOR_SCRIPT_PATH}" && sudo chown root:root "${MONITOR_SCRIPT_PATH}"
 
 # 4. Set up Logging and Cron Job
 print_info "Setting up log file and cron job..."
 sudo touch "${AGENT_LOG_FILE}"
-sudo chown syslog:adm "${AGENT_LOG_FILE}"
-sudo chmod 640 "${AGENT_LOG_FILE}"
+sudo chown syslog:adm "${AGENT_LOG_FILE}" && sudo chmod 640 "${AGENT_LOG_FILE}"
 
 CRON_FILE_NAME="sla-monitor-agent-cron"
 CRON_FILE_DEST="/etc/cron.d/${CRON_FILE_NAME}"
 print_info "Creating cron job at ${CRON_FILE_DEST}"
-sudo cat <<EOF > "${CRON_FILE_DEST}"
+
+# *** FIX: Use a robust method to create the cron file WITH output redirection ***
+sudo tee "${CRON_FILE_DEST}" > /dev/null <<EOF
 # SLA Monitor AGENT Cron Job
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
-# Run the monitor script every 15 minutes
-*/15 * * * * root ${MONITOR_SCRIPT_PATH}
+# Run the monitor script every 15 minutes and redirect ALL output to the log file.
+*/15 * * * * root ${MONITOR_SCRIPT_PATH} >> ${AGENT_LOG_FILE} 2>&1
 EOF
-sudo chown root:root "${CRON_FILE_DEST}"
-sudo chmod 644 "${CRON_FILE_DEST}"
+
+sudo chown root:root "${CRON_FILE_DEST}" && sudo chmod 644 "${CRON_FILE_DEST}"
 print_info "Agent cron job created successfully."
 
 print_info "--------------------------------------------------------------------"
