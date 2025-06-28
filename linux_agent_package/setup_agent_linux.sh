@@ -48,17 +48,15 @@ if command -v speedtest &> /dev/null; then sudo speedtest --accept-license --acc
 if command -v speedtest-cli &> /dev/null; then sudo speedtest-cli --accept-license --accept-gdpr > /dev/null 2>&1; fi
 
 
-# *** NEW: Fix ping permissions for reliable cron execution ***
+# Fix ping permissions for reliable cron execution
 print_info "Ensuring 'ping' has necessary permissions for non-interactive execution..."
 if command -v ping &> /dev/null; then
     # The setuid bit allows the ping command to be run by any user/service with the permissions of the root owner.
-    # This is the standard, secure way to allow unprivileged processes to use ICMP.
     sudo chmod u+s $(which ping)
     print_info "Set 'setuid' permission on ping command to ensure cron job can run it."
 else
     print_warn "Could not find 'ping' command to set permissions."
 fi
-
 
 # 3. Deploy Application Files Safely
 print_info "Creating script directory: ${MONITOR_SCRIPT_DIR}"

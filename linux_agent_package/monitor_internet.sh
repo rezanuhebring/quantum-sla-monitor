@@ -1,25 +1,23 @@
 #!/bin/bash
 # SLA Monitor Agent Script
-# FINAL PRODUCTION VERSION - Fixes ping array and speedtest parsing logic.
+# FINAL PRODUCTION VERSION - Reads ping targets and speedtest args from config.
 
 # --- Source the local agent configuration file ---
 AGENT_CONFIG_FILE="/opt/sla_monitor/agent_config.env"
 LOG_FILE="/var/log/internet_sla_monitor_agent.log"
 
-# Load config file if it exists.
+# Load config file if it exists. This sets the primary variables.
 if [ -f "$AGENT_CONFIG_FILE" ]; then
     set -a; source "$AGENT_CONFIG_FILE"; set +a
 fi
 
-# --- Agent Default Configurations (used if not set in agent_config.env) ---
-# FIX: Define default PING_HOSTS as a proper array.
-DEFAULT_PING_HOSTS=("8.8.8.8" "1.1.1.1" "google.com")
-PING_HOSTS=("${PING_HOSTS[@]:-${DEFAULT_PING_HOSTS[@]}}")
-
+# --- Agent Default Configurations (used as fallbacks if not set in agent_config.env) ---
 AGENT_IDENTIFIER="${AGENT_IDENTIFIER:-<UNIQUE_AGENT_ID>}"
 AGENT_TYPE="${AGENT_TYPE:-ISP}"
-CENTRAL_API_URL="${CENTral_api_url:-http://<YOUR_CENTRAL_SERVER_IP>/api/submit_metrics.php}"
+CENTRAL_API_URL="${CENTRAL_API_URL:-http://<YOUR_CENTRAL_SERVER_IP>/api/submit_metrics.php}"
 CENTRAL_API_KEY="${CENTRAL_API_KEY:-}"
+PING_HOSTS=("${PING_HOSTS[@]}") # Reads the array from the sourced config
+SPEEDTEST_ARGS="${SPEEDTEST_ARGS:-}" # Reads the arguments from the sourced config
 PING_COUNT=${PING_COUNT:-10}
 PING_TIMEOUT=${PING_TIMEOUT:-5}
 DNS_CHECK_HOST="${DNS_CHECK_HOST:-www.google.com}"
@@ -46,17 +44,17 @@ if [[ "$AGENT_IDENTIFIER" == *"<UNIQUE_AGENT_ID>"* ]] || [ -z "$AGENT_IDENTIFIER
     log_message "FATAL: AGENT_IDENTIFIER is not configured in ${AGENT_CONFIG_FILE}. Exiting."
     exit 1
 fi
+if [ ${#PING_HOSTS[@]} -eq 0 ]; then
+    log_message "WARN: PING_HOSTS array is not defined in ${AGENT_CONFIG_FILE}. Disabling ping test for this run."
+    ENABLE_PING=false
+fi
 
-# FIX: Robustly detect speedtest command and set a format flag.
-SPEEDTEST_COMMAND_PATH=""; SPEEDTEST_ARGS=""; SPEEDTEST_FORMAT=""
+# Auto-detect speedtest command, but NOT its arguments.
+SPEEDTEST_COMMAND_PATH=""
 if command -v speedtest &>/dev/null; then
     SPEEDTEST_COMMAND_PATH=$(command -v speedtest)
-    SPEEDTEST_ARGS="--format=json --accept-license --accept-gdpr"
-    SPEEDTEST_FORMAT="ookla"
 elif command -v speedtest-cli &>/dev/null; then
     SPEEDTEST_COMMAND_PATH=$(command -v speedtest-cli)
-    SPEEDTEST_ARGS="--json --accept-license --accept-gdpr"
-    SPEEDTEST_FORMAT="community"
 fi
 
 # --- Main Logic ---
@@ -138,14 +136,15 @@ fi
 # --- SPEEDTEST ---
 if [ "$ENABLE_SPEEDTEST" = true ]; then
     if [ -n "$SPEEDTEST_COMMAND_PATH" ]; then
-        log_message "Performing speedtest with '$SPEEDTEST_COMMAND_PATH' (Format: $SPEEDTEST_FORMAT)..."
+        log_message "Performing speedtest with '$SPEEDTEST_COMMAND_PATH' and args '$SPEEDTEST_ARGS'..."
         speedtest_interface_arg=""
         if [ -n "$NETWORK_INTERFACE_TO_MONITOR" ]; then
             _source_ip_agent=$(ip -4 addr show "$NETWORK_INTERFACE_TO_MONITOR" | grep -oP 'inet \K[\d.]+' | head -n 1)
             if [ -n "$_source_ip_agent" ]; then
-                if [ "$SPEEDTEST_FORMAT" == "community" ]; then 
+                # Check if the args from config file specify an interface type
+                if [[ "$SPEEDTEST_ARGS" == *"--source"* ]]; then 
                     speedtest_interface_arg="--source $_source_ip_agent"
-                else 
+                elif [[ "$SPEEDTEST_ARGS" == *"--interface"* ]]; then
                     speedtest_interface_arg="--interface $NETWORK_INTERFACE_TO_MONITOR"
                 fi
             fi
@@ -154,7 +153,7 @@ if [ "$ENABLE_SPEEDTEST" = true ]; then
         speedtest_json_output=$(timeout 120s $SPEEDTEST_COMMAND_PATH $SPEEDTEST_ARGS $speedtest_interface_arg)
         
         if [ $? -eq 0 ] && echo "$speedtest_json_output" | jq -e . > /dev/null 2>&1; then
-            if [ "$SPEEDTEST_FORMAT" == "ookla" ]; then
+            if echo "$speedtest_json_output" | jq -e '.download.bandwidth' > /dev/null 2>&1; then
                 log_message "Parsing speedtest output as Ookla JSON format."
                 dl_bytes_per_sec=$(echo "$speedtest_json_output" | jq -r '.download.bandwidth // 0')
                 ul_bytes_per_sec=$(echo "$speedtest_json_output" | jq -r '.upload.bandwidth // 0')
@@ -163,7 +162,7 @@ if [ "$ENABLE_SPEEDTEST" = true ]; then
                 results_map[st_ping]=$(echo "$speedtest_json_output" | jq -r '.ping.latency // "null"')
                 results_map[st_jitter]=$(echo "$speedtest_json_output" | jq -r '.ping.jitter // "null"')
                 results_map[st_status]="COMPLETED"
-            elif [ "$SPEEDTEST_FORMAT" == "community" ]; then
+            elif echo "$speedtest_json_output" | jq -e '.download' > /dev/null 2>&1; then
                 log_message "Parsing speedtest output as community speedtest-cli JSON format."
                 st_dl_bps=$(echo "$speedtest_json_output" | jq -r '.download // 0');
                 st_ul_bps=$(echo "$speedtest_json_output" | jq -r '.upload // 0');
@@ -172,6 +171,9 @@ if [ "$ENABLE_SPEEDTEST" = true ]; then
                 results_map[st_ping]=$(echo "$speedtest_json_output" | jq -r '.ping // "null"')
                 results_map[st_jitter]="null"
                 results_map[st_status]="COMPLETED"
+            else
+                log_message "Speedtest FAILED: JSON format not recognized."
+                results_map[st_status]="FAILED_PARSE"
             fi
         else
             log_message "Speedtest FAILED: Command failed or produced non-JSON output."
