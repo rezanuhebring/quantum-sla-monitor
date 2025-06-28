@@ -23,6 +23,10 @@
         .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 24px; }
         .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
         input:checked + .slider { background-color: #6200ea; } input:checked + .slider:before { transform: translateX(20px); }
+        .download-button-container { text-align: center; margin-bottom: 20px; } 
+        .download-button { display: inline-block; padding: 10px 20px; font-size: 1em; font-weight: bold; color: #fff; background-color: var(--link-color); border: none; border-radius: 5px; text-decoration: none; cursor: pointer; transition: background-color 0.2s; } 
+        .download-button:hover { background-color: #0056b3; }
+        .dark-mode .download-button:hover { background-color: #985eff; }
         .agent-lists-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 30px; }
         .agent-list { list-style-type: none; padding: 0; }
         .agent-list li { background-color: var(--bg-color); margin-bottom: 10px; padding: 15px; border-radius: 6px; border-left: 5px solid var(--grey); transition: transform 0.2s, box-shadow 0.2s; }
@@ -79,6 +83,14 @@
             <!-- Detail View -->
             <div id="detail-view" class="hidden">
                 <h2 id="agent-name-header"></h2>
+                
+                <!-- *** FIXED: The download button is restored here *** -->
+                <div class="download-button-container">
+                    <a id="individual-csv-download" href="#" class="download-button">
+                        <span role="img" aria-label="floppy disk">💾</span> Download Agent Data (CSV)
+                    </a>
+                </div>
+                
                  <div class="grid-container">
                     <div class="metric-card"><h3><span role="img" aria-label="signal">📶</span> Ping & Connectivity</h3><p><span>Overall Status:</span> <strong id="ping-status">N/A</strong></p><p><span>Average RTT:</span> <strong id="ping-rtt">N/A</strong></p><p><span>Average Loss:</span> <strong id="ping-loss">N/A</strong></p><p><span>Average Jitter:</span> <strong id="ping-jitter">N/A</strong></p></div>
                     <div class="metric-card"><h3><span role="img" aria-label="gauge">💨</span> Speed Test</h3><p><span>Status:</span> <strong id="speed-status">N/A</strong></p><p><span>Download:</span> <strong id="speed-dl">N/A</strong></p><p><span>Upload:</span> <strong id="speed-ul">N/A</strong></p><p><span>Ping (Speedtest):</span> <strong id="speed-ping">N/A</strong></p></div>
@@ -124,7 +136,6 @@
                 refreshIntervalTimer = setInterval(() => fetchAndUpdateDashboard(profileSelector.value), refreshMs);
             } catch (error) {
                 console.error("Failed to render dashboard data:", error);
-                const currentAgentId = new URLSearchParams(window.location.search).get('isp_id');
                 const errorMessage = `Could not load dashboard data. ${error.message}.`;
                 detailView.innerHTML = `<h2 style="color:var(--red)">Error</h2><p>${errorMessage}</p><p><a href="./">Return to summary view</a></p>`;
                 summaryView.classList.add('hidden');
@@ -189,8 +200,10 @@
         function updateDetailView(data) {
             setText('agent-name-header', data.current_isp_name);
             const latest = data.latest_check;
+            
             setText('ping-status', latest?.overall_connectivity); setText('ping-rtt', latest?.avg_rtt_ms, ' ms'); setText('ping-loss', latest?.avg_loss_percent, ' %'); setText('ping-jitter', latest?.avg_jitter_ms, ' ms');
             setText('speed-status', latest?.speedtest_status); setText('speed-dl', latest?.speedtest_download_mbps, ' Mbps'); setText('speed-ul', latest?.speedtest_upload_mbps, ' Mbps'); setText('speed-ping', latest?.speedtest_ping_ms, ' ms');
+
             const slaContainer = document.getElementById('historical-sla-data');
             slaContainer.innerHTML = `<h3>SLA (Target: ${data.target_sla_percentage}%)</h3>`;
             if (data.periods && Object.keys(data.periods).length > 0) {
@@ -204,6 +217,15 @@
             } else {
                 slaContainer.innerHTML += '<p>No historical data available.</p>';
             }
+            
+            // *** FIX: Update the download button's link and filename ***
+            const downloadLink = document.getElementById('individual-csv-download');
+            if (downloadLink) {
+                downloadLink.href = `generate_csv.php?isp_id=${data.current_isp_profile_id}`;
+                const safeFilename = data.current_isp_name.replace(/[^a-zA-Z0-9_]/g, '_');
+                downloadLink.setAttribute('download', `sla_history_${safeFilename}.csv`);
+            }
+            
             renderRttChart(data.rtt_chart_data);
             renderSpeedTestChart(data.speed_chart_data);
         }
@@ -229,7 +251,6 @@
         function applyTheme(isDark) {
             document.body.classList.toggle('dark-mode', isDark);
             themeToggle.checked = isDark;
-            // FIX: Use correct global variable names
             const charts = [rttChartInstance, speedChartInstance];
             const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
             const fontColor = isDark ? '#e0e0e0' : '#333';
