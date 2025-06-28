@@ -1,6 +1,6 @@
 #!/bin/bash
-
-# Script to set up the Central Internet SLA Monitor Dashboard using Docker.
+# setup_central_server.sh - FINAL PRODUCTION VERSION
+# Includes a self-healing migration to fix the UNIQUE constraint on agent_name.
 
 # --- Configuration Variables ---
 APP_SOURCE_SUBDIR="app"
@@ -27,7 +27,7 @@ print_error() { echo -e "\033[0;31m[ERROR]\033[0m $1" >&2; }
 print_info "Starting CENTRAL Internet SLA Monitor Docker Setup..."
 if [ "$(id -u)" -ne 0 ]; then print_error "This script must be run with sudo: sudo $0"; exit 1; fi
 
-# 0. Check if source application files exist
+# 0. Check for source application files
 print_info "Checking for required application source files in ./${APP_SOURCE_SUBDIR}/ ..."
 if [ ! -d "./${APP_SOURCE_SUBDIR}" ]; then print_error "Source directory './${APP_SOURCE_SUBDIR}/' not found. This script must be run from 'central_server_package/'."; exit 1; fi
 
@@ -162,7 +162,7 @@ HOST_API_LOGS_DIR=${HOST_API_LOGS_DIR}
 HOST_APACHE_LOGS_DIR=${HOST_APACHE_LOGS_DIR}
 EOF_ENV_FILE
 
-# 6. Initialize sla_config.env and SQLite Database on Host Volume
+# 6. Initialize sla_config.env
 HOST_VOLUME_CONFIG_FILE_PATH="${HOST_OPT_SLA_MONITOR_DIR}/${SLA_CONFIG_HOST_FINAL_NAME}"
 SOURCE_CONFIG_TEMPLATE_PATH="./${APP_SOURCE_SUBDIR}/${SLA_CONFIG_SOURCE_NAME}"
 print_info "Initializing ${SLA_CONFIG_HOST_FINAL_NAME} on host volume: ${HOST_VOLUME_CONFIG_FILE_PATH}"
@@ -173,7 +173,8 @@ else
     print_warn "${HOST_VOLUME_CONFIG_FILE_PATH} already exists. Not overwriting."
 fi
 
-print_info "Initializing CENTRAL SQLite database on host: ${SQLITE_DB_FILE_HOST_PATH}"
+# 7. Database Schema Creation & Self-Healing Migration
+print_info "Initializing and verifying database schema..."
 sudo touch "${SQLITE_DB_FILE_HOST_PATH}"
 sudo chown -R root:www-data "${HOST_DATA_ROOT}"
 sudo chmod -R 770 "${HOST_DATA_ROOT}"
@@ -181,19 +182,53 @@ sudo chmod 660 "${HOST_VOLUME_CONFIG_FILE_PATH}"
 sudo chmod 660 "${HOST_API_LOGS_DIR}/sla_api.log"
 sudo chmod 660 "${SQLITE_DB_FILE_HOST_PATH}"
 
-# Create DB schema
-sudo sqlite3 "${SQLITE_DB_FILE_HOST_PATH}" <<EOF
-PRAGMA journal_mode=WAL;
-CREATE TABLE IF NOT EXISTS isp_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_name TEXT NOT NULL UNIQUE, agent_identifier TEXT UNIQUE NOT NULL, agent_type TEXT NOT NULL CHECK(agent_type IN ('ISP', 'Client')) DEFAULT 'ISP', network_interface_to_monitor TEXT, last_reported_hostname TEXT, last_reported_source_ip TEXT, is_active INTEGER DEFAULT 1, sla_target_percentage REAL DEFAULT 99.5, rtt_degraded INTEGER DEFAULT 100, rtt_poor INTEGER DEFAULT 250, loss_degraded INTEGER DEFAULT 2, loss_poor INTEGER DEFAULT 10, ping_jitter_degraded INTEGER DEFAULT 30, ping_jitter_poor INTEGER DEFAULT 50, dns_time_degraded INTEGER DEFAULT 300, dns_time_poor INTEGER DEFAULT 800, http_time_degraded REAL DEFAULT 1.0, http_time_poor REAL DEFAULT 2.5, speedtest_dl_degraded REAL DEFAULT 60, speedtest_dl_poor REAL DEFAULT 30, speedtest_ul_degraded REAL DEFAULT 20, speedtest_ul_poor REAL DEFAULT 5, teams_webhook_url TEXT DEFAULT '', alert_hostname_override TEXT, notes TEXT, last_heard_from TEXT);
-CREATE TABLE IF NOT EXISTS sla_metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, isp_profile_id INTEGER NOT NULL, timestamp TEXT NOT NULL, overall_connectivity TEXT, avg_rtt_ms REAL, avg_loss_percent REAL, avg_jitter_ms REAL, dns_status TEXT, dns_resolve_time_ms INTEGER, http_status TEXT, http_response_code INTEGER, http_total_time_s REAL, speedtest_status TEXT, speedtest_download_mbps REAL, speedtest_upload_mbps REAL, speedtest_ping_ms REAL, speedtest_jitter_ms REAL, detailed_health_summary TEXT, sla_met_interval INTEGER DEFAULT 0, FOREIGN KEY (isp_profile_id) REFERENCES isp_profiles(id), UNIQUE(isp_profile_id, timestamp));
-CREATE INDEX IF NOT EXISTS idx_central_sla_metrics_isp_timestamp ON sla_metrics (isp_profile_id, timestamp); CREATE INDEX IF NOT EXISTS idx_isp_profiles_agent_identifier ON isp_profiles (agent_identifier);
-INSERT OR IGNORE INTO isp_profiles (agent_name, agent_identifier, agent_type, is_active, alert_hostname_override) SELECT 'Central Server Local (Example)', 'central_server_local_001', 'ISP', 0, '$(hostname -s)';
-VACUUM;
-EOF
-print_info "Database schema created/verified."
+# Define the CORRECT schema
+CORRECT_PROFILES_TABLE_SQL="CREATE TABLE isp_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_name TEXT NOT NULL, agent_identifier TEXT NOT NULL UNIQUE, agent_type TEXT NOT NULL CHECK(agent_type IN ('ISP', 'Client')) DEFAULT 'ISP', network_interface_to_monitor TEXT, last_reported_hostname TEXT, last_reported_source_ip TEXT, is_active INTEGER DEFAULT 1, sla_target_percentage REAL DEFAULT 99.5, rtt_degraded INTEGER DEFAULT 100, rtt_poor INTEGER DEFAULT 250, loss_degraded INTEGER DEFAULT 2, loss_poor INTEGER DEFAULT 10, ping_jitter_degraded INTEGER DEFAULT 30, ping_jitter_poor INTEGER DEFAULT 50, dns_time_degraded INTEGER DEFAULT 300, dns_time_poor INTEGER DEFAULT 800, http_time_degraded REAL DEFAULT 1.0, http_time_poor REAL DEFAULT 2.5, speedtest_dl_degraded REAL DEFAULT 60, speedtest_dl_poor REAL DEFAULT 30, speedtest_ul_degraded REAL DEFAULT 20, speedtest_ul_poor REAL DEFAULT 5, teams_webhook_url TEXT DEFAULT '', alert_hostname_override TEXT, notes TEXT, last_heard_from TEXT);"
+CORRECT_METRICS_TABLE_SQL="CREATE TABLE sla_metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, isp_profile_id INTEGER NOT NULL, timestamp TEXT NOT NULL, overall_connectivity TEXT, avg_rtt_ms REAL, avg_loss_percent REAL, avg_jitter_ms REAL, dns_status TEXT, dns_resolve_time_ms INTEGER, http_status TEXT, http_response_code INTEGER, http_total_time_s REAL, speedtest_status TEXT, speedtest_download_mbps REAL, speedtest_upload_mbps REAL, speedtest_ping_ms REAL, speedtest_jitter_ms REAL, detailed_health_summary TEXT, sla_met_interval INTEGER DEFAULT 0, FOREIGN KEY (isp_profile_id) REFERENCES isp_profiles(id), UNIQUE(isp_profile_id, timestamp));"
+CORRECT_INDEX_SQL_1="CREATE INDEX IF NOT EXISTS idx_central_sla_metrics_isp_timestamp ON sla_metrics (isp_profile_id, timestamp);"
+CORRECT_INDEX_SQL_2="CREATE INDEX IF NOT EXISTS idx_isp_profiles_agent_identifier ON isp_profiles (agent_identifier);"
+DEFAULT_PROFILE_SQL="INSERT OR IGNORE INTO isp_profiles (agent_name, agent_identifier, agent_type, is_active, alert_hostname_override) SELECT 'Central Server Local (Example)', 'central_server_local_001', 'ISP', 0, '$(hostname -s)';"
 
-# 7. Build and Start the Docker Container
+# Check if the table exists at all
+table_exists=$(sudo sqlite3 "${SQLITE_DB_FILE_HOST_PATH}" "SELECT name FROM sqlite_master WHERE type='table' AND name='isp_profiles';")
+if [ -z "$table_exists" ]; then
+    print_info "Table 'isp_profiles' does not exist. Creating new database with correct schema..."
+    sudo sqlite3 "${SQLITE_DB_FILE_HOST_PATH}" "
+        PRAGMA journal_mode=WAL;
+        ${CORRECT_PROFILES_TABLE_SQL}
+        ${CORRECT_METRICS_TABLE_SQL}
+        ${CORRECT_INDEX_SQL_1}
+        ${CORRECT_INDEX_SQL_2}
+        ${DEFAULT_PROFILE_SQL}
+        VACUUM;
+    "
+else
+    # Table exists, check if it has the BAD constraint
+    existing_schema=$(sudo sqlite3 "${SQLITE_DB_FILE_HOST_PATH}" "SELECT sql FROM sqlite_master WHERE type='table' AND name='isp_profiles';")
+    if [[ "$existing_schema" == *"agent_name"*"UNIQUE"* ]]; then
+        print_warn "Incorrect UNIQUE constraint found on 'agent_name'. Rebuilding table to fix (data will be preserved)..."
+        sudo sqlite3 "${SQLITE_DB_FILE_HOST_PATH}" <<'MIGRATE_SQL'
+        PRAGMA foreign_keys=off;
+        BEGIN TRANSACTION;
+        CREATE TABLE isp_profiles_new (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_name TEXT NOT NULL, agent_identifier TEXT NOT NULL UNIQUE, agent_type TEXT NOT NULL CHECK(agent_type IN ('ISP', 'Client')) DEFAULT 'ISP', network_interface_to_monitor TEXT, last_reported_hostname TEXT, last_reported_source_ip TEXT, is_active INTEGER DEFAULT 1, sla_target_percentage REAL DEFAULT 99.5, rtt_degraded INTEGER DEFAULT 100, rtt_poor INTEGER DEFAULT 250, loss_degraded INTEGER DEFAULT 2, loss_poor INTEGER DEFAULT 10, ping_jitter_degraded INTEGER DEFAULT 30, ping_jitter_poor INTEGER DEFAULT 50, dns_time_degraded INTEGER DEFAULT 300, dns_time_poor INTEGER DEFAULT 800, http_time_degraded REAL DEFAULT 1.0, http_time_poor REAL DEFAULT 2.5, speedtest_dl_degraded REAL DEFAULT 60, speedtest_dl_poor REAL DEFAULT 30, speedtest_ul_degraded REAL DEFAULT 20, speedtest_ul_poor REAL DEFAULT 5, teams_webhook_url TEXT DEFAULT '', alert_hostname_override TEXT, notes TEXT, last_heard_from TEXT);
+        INSERT INTO isp_profiles_new SELECT * FROM isp_profiles;
+        DROP TABLE isp_profiles;
+        ALTER TABLE isp_profiles_new RENAME TO isp_profiles;
+        COMMIT;
+        PRAGMA foreign_keys=on;
+        VACUUM;
+MIGRATE_SQL
+        print_info "Table 'isp_profiles' has been rebuilt with the correct schema."
+    else
+        print_info "'isp_profiles' schema appears correct. No migration needed."
+    fi
+fi
+
+# 8. Build and Start the Docker Container
 print_info "Building and starting Docker container..."
+# First, ensure any running instance is stopped before we start a new one
+sudo docker-compose -f "${DOCKER_COMPOSE_FILE_NAME}" down --volumes
+# Now, start it fresh
 sudo docker-compose -f "${DOCKER_COMPOSE_FILE_NAME}" up --build -d
 if [ $? -eq 0 ]; then
     print_info "Docker container started successfully."
