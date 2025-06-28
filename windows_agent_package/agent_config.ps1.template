@@ -1,0 +1,29 @@
+# ==============================================================================
+#                      SLA Monitor Agent Configuration (.ps1)
+# ==============================================================================
+# This is the primary configuration file for this monitoring agent.
+# You MUST edit the values below for your specific environment.
+
+# --- Mandatory Settings ---
+$AGENT_IDENTIFIER = "<UNIQUE_AGENT_ID>"
+$CENTRAL_API_URL  = "http://<YOUR_CENTRAL_SERVER_IP>/api/submit_metrics.php"
+
+# --- Test Enable/Disable Flags ---
+# Set to $true to enable a test, or $false to disable it.
+$ENABLE_PING      = $true
+$ENABLE_DNS       = $true
+$ENABLE_HTTP      = $true
+$ENABLE_SPEEDTEST = $true
+    
+# --- Test Parameters ---
+$PING_HOSTS       = @("8.8.8.8", "1.1.1.1", "google.com")
+    
+# --- Optional Settings ---
+$AGENT_TYPE       = "Client"
+$CENTRAL_API_KEY  = ""
+
+# --- Fine-Tuning Parameters ---
+$PING_COUNT       = 10
+$DNS_CHECK_HOST   = "www.google.com"
+$HTTP_CHECK_URL   = "https://www.google.com"
+$NETWORK_INTERFACE_TO_MONITOR = "" # e.g., "Ethernet", "Wi-Fi". Leave blank for default.
