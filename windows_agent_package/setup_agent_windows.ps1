@@ -1,14 +1,9 @@
 <#
 .SYNOPSIS
-    Automated setup for the Windows PowerShell SLA Monitoring Agent.
-    This script silently installs dependencies, copies files, and creates a scheduled task.
+    Automated setup for the Windows PowerShell SLA Monitoring Agent. FINAL PRODUCTION VERSION.
 .DESCRIPTION
-    - Checks for Administrator privileges.
-    - Automatically downloads and installs Ookla Speedtest if not found.
-    - Adds Speedtest to the system's PATH environment variable.
-    - Automatically accepts the Speedtest license terms.
-    - Deploys the agent scripts and configuration template.
-    - Creates a recurring Scheduled Task to run the monitor every 15 minutes.
+    This script silently installs dependencies, copies files, and creates a scheduled task.
+    It includes improved, clearer error logging for network-related issues.
 #>
 param()
 
@@ -18,6 +13,7 @@ Write-Host "Starting Windows SLA Monitor Agent Setup..." -ForegroundColor Yellow
 # Ensure the script is running as Administrator
 if (-Not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Error "This script must be run as an Administrator. Please right-click and 'Run as Administrator'."
+    Read-Host "Press Enter to exit"
     exit 1
 }
 
@@ -26,7 +22,7 @@ $AgentSourcePath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $AgentInstallDir = "C:\SLA_Monitor_Agent"
 $SpeedtestInstallDir = Join-Path $AgentInstallDir "speedtest"
 $MonitorScriptName = "Monitor-InternetAgent.ps1"
-$ConfigTemplateName = "agent_config.ps1"
+$ConfigTemplateName = "agent_config.psd1"
 
 # --- 1. Install Dependencies (Ookla Speedtest) ---
 if (-not (Test-Path (Join-Path $SpeedtestInstallDir "speedtest.exe"))) {
@@ -73,7 +69,8 @@ Write-Host "Attempting to accept Speedtest license terms..."
 try {
     speedtest.exe --accept-license --accept-gdpr | Out-Null
 } catch {
-    Write-Warning "Could not run speedtest.exe to accept license. This may be fine if already accepted."
+    # FIX: Improved, clearer error message for transient network errors.
+    Write-Warning "Could not run speedtest.exe to accept license. This is likely a temporary network/DNS issue and will resolve on the first agent run. Error: $($_.Exception.Message)"
 }
 
 # --- 4. Deploy Agent Scripts ---
@@ -81,11 +78,9 @@ if (-not (Test-Path $AgentInstallDir)) { New-Item -Path $AgentInstallDir -ItemTy
 
 Write-Host "Copying agent scripts..."
 try {
-    # Copy the main monitoring script, always overwriting to ensure it's the latest version.
     Copy-Item -Path (Join-Path $AgentSourcePath $MonitorScriptName) -Destination (Join-Path $AgentInstallDir $MonitorScriptName) -Force -ErrorAction Stop
     Write-Host "- Copied $MonitorScriptName"
 
-    # Copy the config file ONLY if it doesn't already exist to preserve user settings.
     $DestinationConfigPath = Join-Path $AgentInstallDir $ConfigTemplateName
     if (-not (Test-Path $DestinationConfigPath)) {
         Copy-Item -Path (Join-Path $AgentSourcePath $ConfigTemplateName) -Destination $DestinationConfigPath -Force -ErrorAction Stop
@@ -107,10 +102,7 @@ $TaskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopI
 
 Write-Host "Registering scheduled task '$TaskName'..."
 try {
-    # Unregister the task if it exists to ensure we're applying the latest settings.
     Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false
-    
-    # Register the new task.
     Register-ScheduledTask -TaskName $TaskName -Action $TaskAction -Trigger $TaskTrigger -Principal $TaskPrincipal -Settings $TaskSettings -ErrorAction Stop
     Write-Host "Scheduled task '$TaskName' created/updated successfully."
 } catch {
