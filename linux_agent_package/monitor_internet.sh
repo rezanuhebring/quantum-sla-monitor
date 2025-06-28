@@ -1,6 +1,6 @@
 #!/bin/bash
 # SLA Monitor Agent Script
-# FINAL PRODUCTION VERSION - Correctly calculates and sends all data.
+# FINAL PRODUCTION VERSION - Includes lock file to prevent concurrent runs.
 
 # --- Configuration & Setup ---
 AGENT_CONFIG_FILE="/opt/sla_monitor/agent_config.env"
@@ -25,23 +25,23 @@ AGENT_IDENTIFIER="${AGENT_IDENTIFIER:-<UNIQUE_AGENT_ID>}"
 AGENT_TYPE="${AGENT_TYPE:-ISP}"
 CENTRAL_API_URL="${CENTRAL_API_URL:-http://<YOUR_CENTRAL_SERVER_IP>/api/submit_metrics.php}"
 CENTRAL_API_KEY="${CENTRAL_API_KEY:-}"
-PING_COUNT=${PING_COUNT:-10}; PING_TIMEOUT=${PING_TIMEOUT:-5}
-DNS_CHECK_HOST="${DNS_CHECK_HOST:-www.google.com}"; DNS_SERVER_TO_QUERY="${DNS_SERVER_TO_QUERY:-}"
-HTTP_CHECK_URL="${HTTP_CHECK_URL:-https://www.google.com}"; HTTP_TIMEOUT=${HTTP_TIMEOUT:-10}
-ENABLE_PING=${ENABLE_PING:-true}; ENABLE_DNS=${ENABLE_DNS:-true}; ENABLE_HTTP=${ENABLE_HTTP:-true}; ENABLE_SPEEDTEST=${ENABLE_SPEEDTEST:-true}
-NETWORK_INTERFACE_TO_MONITOR="${NETWORK_INTERFACE_TO_MONITOR:-}"; SPEEDTEST_ARGS="${SPEEDTEST_ARGS:-}"
-RTT_THRESHOLD_DEGRADED=${RTT_THRESHOLD_DEGRADED:-100}; RTT_THRESHOLD_POOR=${RTT_THRESHOLD_POOR:-250}
-LOSS_THRESHOLD_DEGRADED=${LOSS_THRESHOLD_DEGRADED:-2}; LOSS_THRESHOLD_POOR=${LOSS_THRESHOLD_POOR:-10}
-PING_JITTER_THRESHOLD_DEGRADED=${PING_JITTER_THRESHOLD_DEGRADED:-30}; PING_JITTER_THRESHOLD_POOR=${PING_JITTER_THRESHOLD_POOR:-50}
-DNS_TIME_THRESHOLD_DEGRADED=${DNS_TIME_THRESHOLD_DEGRADED:-300}; DNS_TIME_THRESHOLD_POOR=${DNS_TIME_THRESHOLD_POOR:-800}
-HTTP_TIME_THRESHOLD_DEGRADED=${HTTP_TIME_THRESHOLD_DEGRADED:-1.0}; HTTP_TIME_THRESHOLD_POOR=${HTTP_TIME_THRESHOLD_POOR:-2.5}
-SPEEDTEST_DL_THRESHOLD_DEGRADED=${SPEEDTEST_DL_THRESHOLD_DEGRADED:-60}; SPEEDTEST_DL_THRESHOLD_POOR=${SPEEDTEST_DL_THRESHOLD_POOR:-30}
-SPEEDTEST_UL_THRESHOLD_DEGRADED=${SPEEDTEST_UL_THRESHOLD_DEGRADED:-20}; SPEEDTEST_UL_THRESHOLD_POOR=${SPEEDTEST_UL_THRESHOLD_POOR:-5}
+PING_COUNT=${PING_COUNT:-10}
+PING_TIMEOUT=${PING_TIMEOUT:-5}
+DNS_CHECK_HOST="${DNS_CHECK_HOST:-www.google.com}"
+DNS_SERVER_TO_QUERY="${DNS_SERVER_TO_QUERY:-}"
+HTTP_CHECK_URL="${HTTP_CHECK_URL:-https://www.google.com}"
+HTTP_TIMEOUT=${HTTP_TIMEOUT:-10}
+ENABLE_PING=${ENABLE_PING:-true}
+ENABLE_DNS=${ENABLE_DNS:-true}
+ENABLE_HTTP=${ENABLE_HTTP:-true}
+ENABLE_SPEEDTEST=${ENABLE_SPEEDTEST:-true}
+NETWORK_INTERFACE_TO_MONITOR="${NETWORK_INTERFACE_TO_MONITOR:-}"
+SPEEDTEST_ARGS="${SPEEDTEST_ARGS:-}"
 
 log_message "Starting SLA Monitor Agent Script. Type: $AGENT_TYPE"
 
-if [[ "$CENTRAL_API_URL" == *"YOUR_CENTRAL_SERVER_IP"* ]]; then log_message "FATAL: CENTRAL_API_URL not configured."; exit 1; fi
-if [[ "$AGENT_IDENTIFIER" == *"<UNIQUE_AGENT_ID>"* ]]; then log_message "FATAL: AGENT_IDENTIFIER not configured."; exit 1; fi
+if [[ "$CENTRAL_API_URL" == *"YOUR_CENTRAL_SERVER_IP"* ]] || [ -z "$CENTRAL_API_URL" ]; then log_message "FATAL: CENTRAL_API_URL not configured."; exit 1; fi
+if [[ "$AGENT_IDENTIFIER" == *"<UNIQUE_AGENT_ID>"* ]] || [ -z "$AGENT_IDENTIFIER" ]; then log_message "FATAL: AGENT_IDENTIFIER not configured."; exit 1; fi
 if [ ${#PING_HOSTS[@]} -eq 0 ]; then log_message "WARN: PING_HOSTS array not defined. Disabling ping test."; ENABLE_PING=false; fi
 
 SPEEDTEST_COMMAND_PATH=""; if command -v speedtest &>/dev/null; then SPEEDTEST_COMMAND_PATH=$(command -v speedtest); elif command -v speedtest-cli &>/dev/null; then SPEEDTEST_COMMAND_PATH=$(command -v speedtest-cli); fi
@@ -81,7 +81,7 @@ fi
 
 if [ "$ENABLE_SPEEDTEST" = true ]; then
     if [ -n "$SPEEDTEST_COMMAND_PATH" ]; then
-        log_message "Performing speedtest with '$SPEEDTEST_COMMAND_PATH'..."; speedtest_interface_arg=""; if [ -n "$NETWORK_INTERFACE_TO_MONITOR" ]; then _source_ip_agent=$(ip -4 addr show "$NETWORK_INTERFACE_TO_MONITOR" | grep -oP 'inet \K[\d.]+'); if [ -n "$_source_ip_agent" ]; then if [[ "$SPEEDTEST_ARGS" == *"--source"* ]]; then speedtest_interface_arg="--source $_source_ip_agent"; elif [[ "$SPEEDTEST_ARGS" == *"--interface"* ]]; then speedtest_interface_arg="--interface $NETWORK_INTERFACE_TO_MONITOR"; fi; fi; fi;
+        log_message "Performing speedtest with '$SPEEDTEST_COMMAND_PATH' and args '$SPEEDTEST_ARGS'..."; speedtest_interface_arg=""; if [ -n "$NETWORK_INTERFACE_TO_MONITOR" ]; then _source_ip_agent=$(ip -4 addr show "$NETWORK_INTERFACE_TO_MONITOR" | grep -oP 'inet \K[\d.]+'); if [ -n "$_source_ip_agent" ]; then if [[ "$SPEEDTEST_ARGS" == *"--source"* ]]; then speedtest_interface_arg="--source $_source_ip_agent"; elif [[ "$SPEEDTEST_ARGS" == *"--interface"* ]]; then speedtest_interface_arg="--interface $NETWORK_INTERFACE_TO_MONITOR"; fi; fi; fi;
         speedtest_json_output=$(timeout 120s $SPEEDTEST_COMMAND_PATH $SPEEDTEST_ARGS $speedtest_interface_arg);
         if [ $? -eq 0 ] && echo "$speedtest_json_output" | jq -e . > /dev/null 2>&1; then
             if echo "$speedtest_json_output" | jq -e '.download.bandwidth' > /dev/null 2>&1; then
@@ -99,41 +99,10 @@ if [ "$ENABLE_SPEEDTEST" = true ]; then
     fi
 fi
 
-# --- DETAILED HEALTH SUMMARY CALCULATION ---
-health_summary="UNKNOWN"
-if [ "${results_map[ping_status]}" == "DOWN" ]; then health_summary="CONNECTIVITY_DOWN"; elif { [ "${results_map[dns_status]}" != "OK" ]; } || { [ "${results_map[http_status]}" != "OK" ] && [ "${results_map[http_status]}" != "ERROR_CODE" ]; }; then health_summary="CRITICAL_SERVICE_FAILURE"; else
-    rtt_val=${results_map[ping_rtt]:-9999}; loss_val=${results_map[ping_loss]:-100}; jitter_val=${results_map[ping_jitter]:-999}; dns_time_val=${results_map[dns_time]:-99999}; http_time_val=${results_map[http_time]:-999}; st_dl_val=${results_map[st_dl]:-0}; st_ul_val=${results_map[st_ul]:-0};
-    is_poor=false; if (( $(echo "$rtt_val > $RTT_THRESHOLD_POOR" | bc -l) )) || (( $(echo "$loss_val > $LOSS_THRESHOLD_POOR" | bc -l) )) || (( $(echo "$jitter_val > $PING_JITTER_THRESHOLD_POOR" | bc -l) )) || (( $(echo "$dns_time_val > $DNS_TIME_THRESHOLD_POOR" | bc -l) )) || (( $(echo "$http_time_val > $HTTP_TIME_THRESHOLD_POOR" | bc -l) )); then is_poor=true; fi
-    if [ "$ENABLE_SPEEDTEST" = true ] && [ "${results_map[st_status]}" == "COMPLETED" ]; then if (( $(echo "$st_dl_val < $SPEEDTEST_DL_THRESHOLD_POOR" | bc -l) )) || (( $(echo "$st_ul_val < $SPEEDTEST_UL_THRESHOLD_POOR" | bc -l) )); then is_poor=true; fi; fi
-    if [ "$is_poor" = true ]; then health_summary="POOR_PERFORMANCE"; else
-        is_degraded=false; if (( $(echo "$rtt_val > $RTT_THRESHOLD_DEGRADED" | bc -l) )) || (( $(echo "$loss_val > $LOSS_THRESHOLD_DEGRADED" | bc -l) )) || (( $(echo "$jitter_val > $PING_JITTER_THRESHOLD_DEGRADED" | bc -l) )) || (( $(echo "$dns_time_val > $DNS_TIME_THRESHOLD_DEGRADED" | bc -l) )) || (( $(echo "$http_time_val > $HTTP_TIME_THRESHOLD_DEGRADED" | bc -l) )); then is_degraded=true; fi
-        if [ "$ENABLE_SPEEDTEST" = true ] && [ "${results_map[st_status]}" == "COMPLETED" ]; then if (( $(echo "$st_dl_val < $SPEEDTEST_DL_THRESHOLD_DEGRADED" | bc -l) )) || (( $(echo "$st_ul_val < $SPEEDTEST_UL_THRESHOLD_DEGRADED" | bc -l) )); then is_degraded=true; fi; fi
-        if [ "$is_degraded" = true ]; then health_summary="DEGRADED_PERFORMANCE"; else health_summary="GOOD_PERFORMANCE"; fi
-    fi
-fi
-current_sla_met_interval=0; if [ "$health_summary" == "GOOD_PERFORMANCE" ]; then current_sla_met_interval=1; fi
-log_message "Health Summary: $health_summary"
-
-# --- Construct Final JSON Payload ---
-log_message "Constructing final JSON payload..."
-payload=$(jq -n \
-    --arg     timestamp                  "$LOG_DATE" \
-    --arg     agent_identifier           "$AGENT_IDENTIFIER" \
-    --arg     agent_type                 "$AGENT_TYPE" \
-    --arg     agent_hostname             "$AGENT_HOSTNAME_LOCAL" \
-    --arg     agent_source_ip            "$AGENT_SOURCE_IP" \
-    --argjson ping_summary               "$(jq -n --arg status "${results_map[ping_status]:-N/A}" --arg rtt "${results_map[ping_rtt]:-null}" --arg loss "${results_map[ping_loss]:-null}" --arg jitter "${results_map[ping_jitter]:-null}" '{status: $status, average_rtt_ms: ($rtt | tonumber? // null), average_packet_loss_percent: ($loss | tonumber? // null), average_jitter_ms: ($jitter | tonumber? // null)}')" \
-    --argjson dns_resolution             "$(jq -n --arg status "${results_map[dns_status]:-N/A}" --arg time "${results_map[dns_time]:-null}" '{status: $status, resolve_time_ms: ($time | tonumber? // null)}')" \
-    --argjson http_check                 "$(jq -n --arg status "${results_map[http_status]:-N/A}" --arg code "${results_map[http_code]:-null}" --arg time "${results_map[http_time]:-null}" '{status: $status, response_code: ($code | tonumber? // null), total_time_s: ($time | tonumber? // null)}')" \
-    --argjson speed_test                 "$(jq -n --arg status "${results_map[st_status]:-SKIPPED}" --arg dl "${results_map[st_dl]:-null}" --arg ul "${results_map[st_ul]:-null}" --arg ping "${results_map[st_ping]:-null}" --arg jitter "${results_map[st_jitter]:-null}" '{status: $status, download_mbps: ($dl | tonumber? // null), upload_mbps: ($ul | tonumber? // null), ping_ms: ($ping | tonumber? // null), jitter_ms: ($jitter | tonumber? // null)}')" \
-    --arg     detailed_health_summary    "$health_summary" \
-    --argjson sla_met_interval           $current_sla_met_interval \
-    '$ARGS.named'
-)
+payload=$(jq -n --arg timestamp "$LOG_DATE" --arg agent_identifier "$AGENT_IDENTIFIER" --arg agent_type "$AGENT_TYPE" --arg agent_hostname "$AGENT_HOSTNAME_LOCAL" --arg agent_source_ip "$AGENT_SOURCE_IP" --argjson ping_summary "$(jq -n --arg status "${results_map[ping_status]:-N/A}" --arg rtt "${results_map[ping_rtt]:-null}" --arg loss "${results_map[ping_loss]:-null}" --arg jitter "${results_map[ping_jitter]:-null}" '{status: $status, average_rtt_ms: ($rtt | tonumber? // null), average_packet_loss_percent: ($loss | tonumber? // null), average_jitter_ms: ($jitter | tonumber? // null)}')" --argjson dns_resolution "$(jq -n --arg status "${results_map[dns_status]:-N/A}" --arg time "${results_map[dns_time]:-null}" '{status: $status, resolve_time_ms: ($time | tonumber? // null)}')" --argjson http_check "$(jq -n --arg status "${results_map[http_status]:-N/A}" --arg code "${results_map[http_code]:-null}" --arg time "${results_map[http_time]:-null}" '{status: $status, response_code: ($code | tonumber? // null), total_time_s: ($time | tonumber? // null)}')" --argjson speed_test "$(jq -n --arg status "${results_map[st_status]:-SKIPPED}" --arg dl "${results_map[st_dl]:-null}" --arg ul "${results_map[st_ul]:-null}" --arg ping "${results_map[st_ping]:-null}" --arg jitter "${results_map[st_jitter]:-null}" '{status: $status, download_mbps: ($dl | tonumber? // null), upload_mbps: ($ul | tonumber? // null), ping_ms: ($ping | tonumber? // null), jitter_ms: ($jitter | tonumber? // null)}')" '$ARGS.named')
 
 if ! echo "$payload" | jq . > /dev/null; then log_message "FATAL: Agent failed to generate valid final JSON. Aborting submission."; exit 1; fi
 
-# --- Submit Data to Central API ---
 log_message "Submitting data to central API: $CENTRAL_API_URL"
 curl_headers=("-H" "Content-Type: application/json"); if [ -n "$CENTRAL_API_KEY" ]; then curl_headers+=("-H" "X-API-Key: $CENTRAL_API_KEY"); fi
 api_response_file=$(mktemp)

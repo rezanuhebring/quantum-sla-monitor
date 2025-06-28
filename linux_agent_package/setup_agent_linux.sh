@@ -1,6 +1,7 @@
 #!/bin/bash
+
 # setup_agent_linux.sh - FINAL PRODUCTION VERSION
-# Includes automated permission fix for the 'ping' command.
+# Includes resilient installation logic and proactive cleanup of broken repositories.
 
 # --- Configuration Variables ---
 MONITOR_SCRIPT_NAME="monitor_internet.sh"
@@ -9,6 +10,7 @@ MONITOR_SCRIPT_DIR="/opt/sla_monitor"
 MONITOR_SCRIPT_PATH="${MONITOR_SCRIPT_DIR}/${MONITOR_SCRIPT_NAME}"
 CONFIG_FILE_PATH="${MONITOR_SCRIPT_DIR}/${AGENT_CONFIG_NAME}"
 AGENT_LOG_FILE="/var/log/internet_sla_monitor_agent.log"
+OOKLA_REPO_FILE="/etc/apt/sources.list.d/ookla_speedtest-cli.list"
 
 # --- Helper Functions ---
 print_info() { echo -e "\033[0;32m[INFO]\033[0m $1"; }
@@ -24,21 +26,46 @@ for file in "./${MONITOR_SCRIPT_NAME}" "./${AGENT_CONFIG_NAME}"; do
     if [ ! -f "$file" ]; then print_error "Source file '$file' not found in current directory."; exit 1; fi
 done
 
-# 2. Install Dependencies
-print_info "Updating package list and installing dependencies..."
-sudo apt-get update -y || { print_error "Apt update failed."; exit 1; }
+# 2. *** NEW: Proactively clean up potentially broken repositories first ***
+print_info "Ensuring system package manager is in a clean state..."
+if [ -f "$OOKLA_REPO_FILE" ]; then
+    sudo rm -f "$OOKLA_REPO_FILE"
+    print_info "Removed existing Ookla repository file to ensure a clean update."
+fi
+
+# 3. Install Core Dependencies from Main Repositories
+print_info "Updating package list and installing core dependencies..."
+sudo apt-get update -y || { print_error "Initial Apt update failed. Please check network and repository settings."; exit 1; }
 sudo apt-get install -y curl jq bc iputils-ping dnsutils || { print_error "Core dependency installation failed."; exit 1; }
 
-# Install Speedtest CLI with fallback
-if ! command -v speedtest &> /dev/null && ! command -v speedtest-cli &> /dev/null; then
-    if curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | sudo bash; then
-        sudo apt-get install -y speedtest || { print_warn "Failed to install Ookla 'speedtest'. Trying community version..."; sudo apt-get install -y speedtest-cli || print_warn "No speedtest CLI could be installed."; }
+# 4. Resiliently Attempt to install Speedtest CLI
+print_info "Attempting to install Speedtest CLI..."
+SPEEDTEST_INSTALLED=false
+
+# First, try the official Ookla version
+print_info "Trying official Ookla Speedtest..."
+if curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | sudo bash; then
+    # The repo script runs its own 'apt-get update'. Now try to install the package.
+    if sudo apt-get install -y speedtest; then
+        print_info "Ookla Speedtest installed successfully."
+        SPEEDTEST_INSTALLED=true
     else
-        print_warn "Could not add Ookla repo. Trying community version...";
-        sudo apt-get install -y speedtest-cli || print_warn "No speedtest CLI could be installed."
+        print_warn "Ookla repo was added, but the 'speedtest' package failed to install (likely unavailable for this OS)."
+        # Clean up the broken repo file again, just in case.
+        sudo rm -f "$OOKLA_REPO_FILE"
     fi
 else
-    print_info "A speedtest command is already installed."
+    print_warn "Could not add the Ookla Speedtest repository script."
+fi
+
+# If Ookla version failed, fall back to the community version
+if [ "$SPEEDTEST_INSTALLED" = false ]; then
+    print_info "Falling back to community 'speedtest-cli' from main repositories..."
+    if sudo apt-get install -y speedtest-cli; then
+        print_info "Community speedtest-cli installed successfully."
+    else
+        print_warn "Could not install any version of Speedtest CLI. Speedtest will be skipped."
+    fi
 fi
 
 # Accept license terms for whichever speedtest was installed
@@ -47,32 +74,30 @@ if command -v speedtest &> /dev/null; then sudo speedtest --accept-license --acc
 if command -v speedtest-cli &> /dev/null; then sudo speedtest-cli --accept-license --accept-gdpr > /dev/null 2>&1; fi
 
 
-# Fix ping permissions for reliable cron execution
+# 5. Fix ping permissions for reliable cron execution
 print_info "Ensuring 'ping' has necessary permissions for non-interactive execution..."
 if command -v ping &> /dev/null; then
     sudo chmod u+s $(which ping)
-    print_info "Set 'setuid' permission on ping command to ensure cron job can run it."
+    print_info "Set 'setuid' permission on ping command."
 else
     print_warn "Could not find 'ping' command to set permissions."
 fi
 
-# 3. Deploy Application Files Safely
+# 6. Deploy Application Files Safely
 print_info "Creating script directory: ${MONITOR_SCRIPT_DIR}"
 sudo mkdir -p "${MONITOR_SCRIPT_DIR}"
 
 if [ ! -f "${CONFIG_FILE_PATH}" ]; then
     print_info "Copying agent configuration template to ${CONFIG_FILE_PATH}"
-    sudo cp "./${AGENT_CONFIG_NAME}" "${CONFIG_FILE_PATH}"
-    sudo chown root:root "${CONFIG_FILE_PATH}"; sudo chmod 600 "${CONFIG_FILE_PATH}"
+    sudo cp "./${AGENT_CONFIG_NAME}" "${CONFIG_FILE_PATH}"; sudo chown root:root "${CONFIG_FILE_PATH}"; sudo chmod 600 "${CONFIG_FILE_PATH}"
 else
     print_warn "Config file ${CONFIG_FILE_PATH} already exists. Skipping copy."
 fi
 
 print_info "Copying agent monitoring script to ${MONITOR_SCRIPT_PATH}"
-sudo cp "./${MONITOR_SCRIPT_NAME}" "${MONITOR_SCRIPT_PATH}"
-sudo chmod +x "${MONITOR_SCRIPT_PATH}"; sudo chown root:root "${MONITOR_SCRIPT_PATH}"
+sudo cp "./${MONITOR_SCRIPT_NAME}" "${MONITOR_SCRIPT_PATH}"; sudo chmod +x "${MONITOR_SCRIPT_PATH}"; sudo chown root:root "${MONITOR_SCRIPT_PATH}"
 
-# 4. Set up Logging and Cron Job
+# 7. Set up Logging and Cron Job
 print_info "Setting up log file and cron job..."
 sudo touch "${AGENT_LOG_FILE}"; sudo chown syslog:adm "${AGENT_LOG_FILE}"; sudo chmod 640 "${AGENT_LOG_FILE}"
 
@@ -90,6 +115,6 @@ print_info "Agent cron job created successfully."
 
 print_info "--------------------------------------------------------------------"
 print_info "SLA Monitor AGENT Setup finished."
-print_warn "IMPORTANT: Please customize ${CONFIG_FILE_PATH} with a unique"
+print_warn "IMPORTANT: Customize ${CONFIG_FILE_PATH} with a unique"
 print_warn "AGENT_IDENTIFIER and the correct CENTRAL_API_URL."
 print_info "--------------------------------------------------------------------"
