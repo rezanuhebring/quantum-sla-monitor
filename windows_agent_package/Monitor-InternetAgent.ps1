@@ -12,7 +12,7 @@
 
 # --- Configuration & Setup ---
 $AgentScriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
-$AgentConfigFile = Join-Path -Path $AgentScriptDirectory -ChildPath "agent_config.psd1"
+$AgentConfigFile = Join-Path -Path $AgentScriptDirectory -ChildPath "agent_config.ps1"
 $LogFile = Join-Path -Path $AgentScriptDirectory -ChildPath "internet_monitor_agent_windows.log"
 $LockFile = Join-Path -Path $env:TEMP -ChildPath "sla_monitor_agent.lock"
 
