@@ -1,7 +1,6 @@
 <?php
-// generate_csv.php
-// This script connects to the database, fetches all data for a given agent,
-// and streams it to the user as a CSV file.
+// generate_csv.php - FINAL PRODUCTION VERSION
+// This script dynamically includes the jitter column only if data exists.
 
 // --- Configuration ---
 $db_file = '/opt/sla_monitor/central_sla_data.sqlite';
@@ -31,52 +30,66 @@ try {
     $filename = "sla_history_{$agent_name}.csv";
     $profile_stmt->close();
 
-    // --- Set HTTP Headers for CSV Download ---
-    header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="' . $filename . '"');
-
-    // --- Fetch Data ---
-    $data_stmt = $db->prepare("
-        SELECT * 
-        FROM sla_metrics 
-        WHERE isp_profile_id = :id 
-        ORDER BY timestamp ASC
-    ");
+    // --- Fetch ALL data for the agent into a PHP array ---
+    $data_stmt = $db->prepare("SELECT * FROM sla_metrics WHERE isp_profile_id = :id ORDER BY timestamp ASC");
     $data_stmt->bindValue(':id', $isp_id, SQLITE3_INTEGER);
     $results = $data_stmt->execute();
     if (!$results) {
         throw new Exception("Failed to retrieve metrics for the agent.");
     }
+    
+    $all_rows = [];
+    while ($row = $results->fetchArray(SQLITE3_ASSOC)) {
+        $all_rows[] = $row;
+    }
+    $data_stmt->close();
+    $db->close();
 
-    // --- Stream CSV to Output ---
+    // --- Set HTTP Headers for CSV Download ---
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    
     $output = fopen('php://output', 'w');
 
-    // Write Header Row
-    $first_row = true;
-    while ($row = $results->fetchArray(SQLITE3_ASSOC)) {
-        if ($first_row) {
-            fputcsv($output, array_keys($row));
-            $first_row = false;
-        }
-        // Write Data Row
-        fputcsv($output, $row);
+    if (empty($all_rows)) {
+        // If there's no data, just output an empty file or a header row
+        fputcsv($output, ['No data available for this agent.']);
+        fclose($output);
+        exit();
     }
 
-    // If there were no results at all, write the header anyway for an empty file
-    if ($first_row) {
-        // Query column names if no data rows exist
-        $cols_query = $db->query("PRAGMA table_info(sla_metrics)");
-        $headers = [];
-        while($col = $cols_query->fetchArray(SQLITE3_ASSOC)){
-            $headers[] = $col['name'];
+    // --- FIX: Dynamically determine if jitter data exists ---
+    $has_jitter_data = false;
+    foreach ($all_rows as $row) {
+        if (isset($row['speedtest_jitter_ms']) && $row['speedtest_jitter_ms'] !== null && $row['speedtest_jitter_ms'] !== '') {
+            $has_jitter_data = true;
+            break; // Found it, no need to check further
         }
-        fputcsv($output, $headers);
+    }
+
+    // --- Prepare Headers ---
+    $headers = array_keys($all_rows[0]);
+    if (!$has_jitter_data) {
+        // If no jitter data exists anywhere, remove the column from the headers
+        $headers = array_filter($headers, function($header) {
+            return $header !== 'speedtest_jitter_ms';
+        });
+    }
+    
+    // Write the final header row
+    fputcsv($output, $headers);
+
+    // --- Write Data Rows ---
+    foreach ($all_rows as $row) {
+        if (!$has_jitter_data) {
+            // If we are in "no jitter" mode, remove the key from the data row too
+            unset($row['speedtest_jitter_ms']);
+        }
+        fputcsv($output, $row);
     }
     
     // --- Clean up ---
     fclose($output);
-    $data_stmt->close();
-    $db->close();
     exit();
 
 } catch (Exception $e) {
