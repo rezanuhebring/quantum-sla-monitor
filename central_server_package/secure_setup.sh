@@ -1,6 +1,6 @@
 #!/bin/bash
 # secure_setup.sh - A dedicated, interactive script to set up Nginx and Let's Encrypt.
-# FINAL PRODUCTION VERSION - Includes a robust and precise port check to prevent false positives.
+# FINAL PRODUCTION VERSION - Uses a robust netstat check to prevent false positive port conflicts.
 
 # --- Helper Functions ---
 print_info() { echo -e "\033[0;32m[INFO]\033[0m $1"; }
@@ -21,17 +21,12 @@ if [ "$(id -u)" -ne 0 ]; then print_error "This script must be run with sudo: su
 
 # --- Step 1: Precise Port Conflict Check (The Safety Check) ---
 print_info "Checking if required ports (80, 443) are available for validation..."
-# *** FIX: Use a precise 'ss' filter instead of a broad 'grep' to avoid false positives on ports like 8080 ***
-# The 'sport = :80' filter checks for the exact source port.
-# We check if the output of this command is non-empty.
-CONFLICTING_PIDS_80=$(sudo ss -tlnp "sport = :80" | awk '{print $NF}')
-CONFLICTING_PIDS_443=$(sudo ss -tlnp "sport = :443" | awk '{print $NF}')
-
-if [ -n "$CONFLICTING_PIDS_80" ] || [ -n "$CONFLICTING_PIDS_443" ]; then
-    print_error "One or more required ports are already in use."
-    if [ -n "$CONFLICTING_PIDS_80" ]; then print_warn "Port 80 is in use by: ${CONFLICTING_PIDS_80}"; fi
-    if [ -n "$CONFLICTING_PIDS_443" ]; then print_warn "Port 443 is in use by: ${CONFLICTING_PIDS_443}"; fi
-    print_warn "Please stop the conflicting service(s) and run this script again."
+# *** FIX: Use a more reliable netstat command to prevent false positives on ports like 8080 ***
+if sudo netstat -tuln | grep -qE ':80\s|:443\s'; then
+    print_error "One or more required ports (80, 443) are already in use."
+    print_warn "Please stop any other web servers or Docker containers using these ports and run this script again."
+    print_warn "Conflicting services detected:"
+    sudo netstat -tulpn | grep -E ':80\s|:443\s'
     exit 1
 else
     print_success "Ports 80 and 443 are available."
@@ -55,7 +50,7 @@ sudo mkdir -p "${HOST_NGINX_CONF_DIR}" "${HOST_LETSENCRYPT_DIR}" "${HOST_CERTBOT
 
 # --- Step 4: Let's Encrypt Challenge ---
 print_warn "To obtain an SSL certificate, a service MUST be temporarily available on standard port 80."
-# Using Certbot's standalone authenticator is simpler and avoids Docker complexity for the challenge.
+# Using Certbot's standalone authenticator is simpler and more reliable than the webroot method with Docker.
 print_info "Requesting Let's Encrypt certificate for ${DOMAIN_NAME} using standalone mode..."
 sudo certbot certonly --standalone -d "${DOMAIN_NAME}" --email "${EMAIL_ADDRESS}" --agree-tos --no-eff-email --force-renewal --http-01-port 80
 if [ $? -ne 0 ]; then
@@ -68,15 +63,13 @@ print_success "Certificate obtained successfully!"
 print_info "Generating final Nginx and Docker Compose configurations..."
 # Create the final Nginx config with SSL and custom port redirect
 sudo tee "${HOST_NGINX_CONF_DIR}/default.conf" > /dev/null <<EOF
-# This block listens on port 80 inside the container and redirects to your custom HTTPS port
 server {
     listen 80;
     server_name ${DOMAIN_NAME};
     location / { return 301 https://\$host:${HTTPS_PORT}\$request_uri; }
 }
-# This is the main server block for your secure application
 server {
-    listen 443 ssl http2; # Nginx inside the container always listens on 443 for SSL
+    listen 443 ssl http2;
     server_name ${DOMAIN_NAME};
     ssl_certificate /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem;
@@ -125,6 +118,8 @@ EOF
 
 # --- Step 6: Launch the Full Secure Stack ---
 print_info "Launching the full application stack on your custom ports..."
+# Stop any previous instances of this specific stack before starting.
+sudo docker-compose -f "${SECURE_COMPOSE_FILE}" down --volumes >/dev/null 2>&1
 sudo docker-compose -f "${SECURE_COMPOSE_FILE}" up --build -d
 
 if [ $? -eq 0 ]; then
