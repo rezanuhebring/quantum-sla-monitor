@@ -1,6 +1,7 @@
 #!/bin/bash
 # setup.sh - A smart, interactive script to deploy the SLA Monitor.
-# FINAL PRODUCTION VERSION - Implements the official Docker clean install procedure to resolve dependency conflicts.
+# FINAL PRODUCTION VERSION - Includes intelligent dependency handling, robust port checks,
+# and fully automated HTTP or HTTPS setup.
 
 # --- Helper Functions ---
 print_info() { echo -e "\033[0;32m[INFO]\033[0m $1"; }
@@ -12,7 +13,6 @@ print_success() { echo -e "\033[1;32m[SUCCESS]\033[0m $1"; }
 HOST_DATA_ROOT="/srv/sla_monitor/central_app_data"
 HOST_NGINX_CONF_DIR="${HOST_DATA_ROOT}/nginx"
 HOST_LETSENCRYPT_DIR="${HOST_DATA_ROOT}/letsencrypt"
-HOST_CERTBOT_WEBROOT_DIR="${HOST_DATA_ROOT}/certbot"
 DOCKER_COMPOSE_FILE="docker-compose.yml"
 DOCKERFILE_NAME="Dockerfile"
 
@@ -21,19 +21,19 @@ clear
 print_info "Welcome to the Internet SLA Monitor Setup Wizard."
 if [ "$(id -u)" -ne 0 ]; then print_error "This script must be run with sudo: sudo $0"; exit 1; fi
 
-# --- Step 1: Intelligent Docker Dependency Handling ---
-print_info "Checking system dependencies..."
+# --- Step 1: Intelligent Dependency Handling ---
+print_info "Checking and installing system dependencies..."
 sudo apt-get update -y || { print_error "Initial apt update failed."; exit 1; }
+# Install net-tools first to ensure netstat is available for checks
+sudo apt-get install -y ca-certificates curl gnupg net-tools || { print_error "Prerequisite installation failed."; exit 1; }
 
+# Check for Docker
 if ! command -v docker &> /dev/null; then
     print_warn "Docker not found. Performing a clean installation..."
     print_info "Removing old/conflicting packages (if any)..."
     for pkg in docker.io docker-doc docker-compose podman-docker containerd runc; do sudo apt-get remove -y $pkg; done
-    sudo apt-get autoremove -y
+    sudo apt-get autoremove -y > /dev/null
 
-    print_info "Installing Docker prerequisites..."
-    sudo apt-get install -y ca-certificates curl gnupg
-    
     print_info "Adding Docker's official GPG key..."
     sudo install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
@@ -46,7 +46,7 @@ if ! command -v docker &> /dev/null; then
       sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
     
     sudo apt-get update -y
-    print_info "Installing Docker CE (Community Edition)..."
+    print_info "Installing Docker CE (Community Edition) and Compose plugin..."
     sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || { print_error "Docker CE installation failed."; exit 1; }
     print_success "Docker installed successfully."
 else
@@ -64,7 +64,8 @@ sudo systemctl stop apache2 >/dev/null 2>&1 && sudo systemctl disable apache2 >/
 
 # --- Step 4: Create Directories & Dockerfile ---
 print_info "Creating necessary directories..."
-sudo mkdir -p "${HOST_NGINX_CONF_DIR}" "${HOST_LETSENCRYPT_DIR}" "${HOST_CERTBOT_WEBROOT_DIR}"
+sudo mkdir -p "${HOST_NGINX_CONF_DIR}" "${HOST_LETSENCRYPT_DIR}"
+# The Dockerfile is required for both setups
 tee "./${DOCKERFILE_NAME}" > /dev/null <<'EOF_DOCKERFILE'
 FROM php:8.2-apache AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends libsqlite3-dev libzip-dev zlib1g-dev && apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -95,8 +96,14 @@ if [ "$USE_HTTPS" = true ]; then
     
     print_info "Ensuring Certbot is installed..."
     sudo apt-get install -y certbot >/dev/null || { print_error "Certbot installation failed."; exit 1; }
-    if sudo netstat -tulpn | grep -qE ':80\s'; then print_error "Port 80 is currently in use. Certbot needs this port for validation."; exit 1; fi
     
+    print_info "Checking if port 80 is available for validation..."
+    if [ -n "$(sudo netstat -tulpn | grep -E ':80\s')" ]; then
+        print_error "Port 80 is currently in use. Certbot needs this port for validation."
+        print_warn "Please stop the conflicting service and run this script again."
+        exit 1
+    fi
+
     print_info "Requesting Let's Encrypt certificate for ${DOMAIN_NAME} using standalone mode..."
     sudo certbot certonly --standalone -d "${DOMAIN_NAME}" --email "${EMAIL_ADDRESS}" --agree-tos --no-eff-email --force-renewal --http-01-port 80
     if [ $? -ne 0 ]; then print_error "Certbot failed. Please check that your domain name points to this server's IP and port 80 is not blocked by a firewall."; exit 1; fi
@@ -115,31 +122,36 @@ EOF
     print_info "Creating final Docker Compose file..."
     tee "${DOCKER_COMPOSE_FILE}" > /dev/null <<EOF
 services:
-  app:
-    build: .
-    container_name: sla_monitor_central_app
-    restart: unless-stopped
-    volumes: ["/srv/sla_monitor/central_app_data/opt_sla_monitor:/opt/sla_monitor", "/srv/sla_monitor/central_app_data/api_logs/sla_api.log:/var/log/sla_api.log"]
-    networks: [sla_network]
-  nginx:
-    image: nginx:latest
-    container_name: sla_monitor_proxy
-    restart: unless-stopped
-    ports: ["80:80", "${HTTPS_PORT}:443"]
-    volumes: ["/srv/sla_monitor/central_app_data/nginx:/etc/nginx/conf.d:ro", "/srv/sla_monitor/central_app_data/letsencrypt:/etc/letsencrypt:ro"]
-    networks: [sla_network]
-    depends_on: [app]
+  app: {build: ., container_name: sla_monitor_central_app, restart: unless-stopped, volumes: ["/srv/sla_monitor/central_app_data/opt_sla_monitor:/opt/sla_monitor", "/srv/sla_monitor/central_app_data/api_logs/sla_api.log:/var/log/sla_api.log"], networks: [sla_network]}
+  nginx: {image: nginx:latest, container_name: sla_monitor_proxy, restart: unless-stopped, ports: ["80:80", "${HTTPS_PORT}:443"], volumes: ["/srv/sla_monitor/central_app_data/nginx:/etc/nginx/conf.d:ro", "/srv/sla_monitor/central_app_data/letsencrypt:/etc/letsencrypt:ro"], networks: [sla_network], depends_on: [app]}
 networks:
-  sla_network:
-    driver: bridge
+  sla_network: {driver: bridge}
 EOF
-    FINAL_URL="https://://${DOMAIN_NAME}:${HTTPS_PORT}"
+    FINAL_URL="https://${DOMAIN_NAME}:${HTTPS_PORT}"
 # ==============================================================================
 # --- HTTP-ONLY DEPLOYMENT PATH ---
 # ==============================================================================
 else
-    # (HTTP-only logic remains the same)
-    # ...
+    print_info "Starting HTTP-only setup..."
+    read -p "Enter the domain name or IP for this server: " DOMAIN_NAME
+    if [ -z "$DOMAIN_NAME" ]; then print_error "Domain/IP cannot be empty. Aborting."; exit 1; fi
+    read -p "Enter the public HTTP port you want to use [8080]: " HTTP_PORT; HTTP_PORT=${HTTP_PORT:-8080}
+    
+    if [ -n "$(sudo netstat -tulpn | grep -E ":${HTTP_PORT}\s")" ]; then print_error "Port ${HTTP_PORT} is already in use. Please choose another."; exit 1; fi
+
+    print_info "Creating Nginx configuration for HTTP on port ${HTTP_PORT}..."
+    sudo tee "${HOST_NGINX_CONF_DIR}/default.conf" > /dev/null <<EOF
+server { listen 80; server_name ${DOMAIN_NAME}; location / { proxy_pass http://app:80; proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; } }
+EOF
+    print_info "Creating Docker Compose file..."
+    tee "${DOCKER_COMPOSE_FILE}" > /dev/null <<EOF
+services:
+  app: {build: ., container_name: sla_monitor_central_app, restart: unless-stopped, volumes: ["/srv/sla_monitor/central_app_data/opt_sla_monitor:/opt/sla_monitor", "/srv/sla_monitor/central_app_data/api_logs/sla_api.log:/var/log/sla_api.log"], networks: [sla_network]}
+  nginx: {image: nginx:latest, container_name: sla_monitor_proxy, restart: unless-stopped, ports: ["${HTTP_PORT}:80"], volumes: ["/srv/sla_monitor/central_app_data/nginx:/etc/nginx/conf.d:ro"], networks: [sla_network], depends_on: [app]}
+networks:
+  sla_network: {driver: bridge}
+EOF
+    FINAL_URL="http://${DOMAIN_NAME}:${HTTP_PORT}"
 fi
 
 # --- Final Step: Launch the Application Stack ---
