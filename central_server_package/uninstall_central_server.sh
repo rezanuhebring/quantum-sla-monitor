@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # Script to completely uninstall the Central Internet SLA Monitor and its components.
+# FINAL VERSION - This script no longer deletes the Dockerfile or docker-compose files.
 
 # --- Configuration Variables (should match your setup script) ---
 HOST_DATA_ROOT="/srv/sla_monitor/central_app_data"
 DOCKER_COMPOSE_FILE_NAME="docker-compose.yml"
-DOCKERFILE_NAME="Dockerfile"
 CONTAINER_NAME="sla_monitor_central_app"
 
 # --- Helper Functions ---
@@ -49,7 +49,7 @@ print_warn "The next step will PERMANENTLY DELETE all application data, logs, an
 print_warn "This action CANNOT be undone."
 read -p "Are you sure you want to delete the data directory at ${HOST_DATA_ROOT}? [y/N]: " confirm_delete_data
 
-if [[ "$confirm_delete_data" == [yY] || "$confirm_delete_data" == [yY][eE][sS] ]]; then
+if [[ "$confirm_delete_data" =~ ^[Yy] ]]; then
     print_info "Deleting host data directory: ${HOST_DATA_ROOT}"
     if [ -d "${HOST_DATA_ROOT}" ]; then
         sudo rm -rf "${HOST_DATA_ROOT}"
@@ -62,27 +62,25 @@ else
 fi
 echo
 
-# 3. Clean up local build files
-print_info "Deleting local build and configuration files..."
-rm -f "${DOCKERFILE_NAME}"
-rm -f "${DOCKER_COMPOSE_FILE_NAME}"
+# 3. Clean up local generated files (but NOT the main compose/Dockerfiles)
+print_info "Deleting local generated files..."
+# *** FIX: The lines for deleting Dockerfile and docker-compose.yml are now removed. ***
 rm -rf "docker"
-print_info "Local files (Dockerfile, docker-compose.yml, docker/) have been removed."
+rm -f ".env"
+print_info "Local generated directories (like 'docker/') have been removed."
 echo
 
 # 4. Optionally, uninstall Docker itself
 print_warn "You can also completely uninstall Docker and Docker Compose from the system."
 read -p "Would you like to UNINSTALL DOCKER from this system? [y/N]: " confirm_uninstall_docker
 
-if [[ "$confirm_uninstall_docker" == [yY] || "$confirm_uninstall_docker" == [yY][eE][sS] ]]; then
+if [[ "$confirm_uninstall_docker" =~ ^[Yy] ]]; then
     print_info "Uninstalling Docker and Docker Compose..."
     # Stop the docker service
     sudo systemctl stop docker
     sudo systemctl disable docker
     # Purge docker packages
-    sudo apt-get purge -y docker-ce docker-ce-cli containerd.io
-    # Remove docker-compose binary
-    sudo rm -f /usr/local/bin/docker-compose
+    sudo apt-get purge -y docker.io docker-compose
     # Clean up residual Docker data (this is very thorough)
     sudo rm -rf /var/lib/docker
     sudo rm -rf /var/lib/containerd
