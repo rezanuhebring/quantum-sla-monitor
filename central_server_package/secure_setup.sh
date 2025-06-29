@@ -1,6 +1,6 @@
 #!/bin/bash
 # secure_setup.sh - A dedicated, interactive script to set up Nginx and Let's Encrypt.
-# This runs separately from your main application setup.
+# FINAL VERSION - Fixes the destructive 'docker-compose down' bug.
 
 # --- Helper Functions ---
 print_info() { echo -e "\033[0;32m[INFO]\033[0m $1"; }
@@ -13,6 +13,7 @@ HOST_DATA_ROOT="/srv/sla_monitor/central_app_data"
 HOST_NGINX_CONF_DIR="${HOST_DATA_ROOT}/nginx"
 HOST_LETSENCRYPT_DIR="${HOST_DATA_ROOT}/letsencrypt"
 HOST_CERTBOT_WEBROOT_DIR="${HOST_DATA_ROOT}/certbot"
+DEFAULT_COMPOSE_FILE="docker-compose.yml"
 SECURE_COMPOSE_FILE="secure_docker-compose.yml"
 
 # --- Main Setup Logic ---
@@ -55,13 +56,19 @@ server {
 EOF
 
 # --- Step 5: Stop any existing Docker setups to free up ports ---
-print_info "Stopping any currently running SLA monitor containers..."
-# This will stop either the old setup or this new one if it's being re-run.
-sudo docker-compose down --volumes >/dev/null 2>&1
-sudo docker-compose -f "${SECURE_COMPOSE_FILE}" down --volumes >/dev/null 2>&1
+print_info "Stopping any currently running SLA monitor containers to free up ports..."
+# *** FIX: Explicitly target specific compose files to avoid destroying unrelated containers ***
+if [ -f "${DEFAULT_COMPOSE_FILE}" ]; then
+    print_info "-> Stopping services from '${DEFAULT_COMPOSE_FILE}'..."
+    sudo docker-compose -f "${DEFAULT_COMPOSE_FILE}" down --volumes >/dev/null 2>&1
+fi
+if [ -f "${SECURE_COMPOSE_FILE}" ]; then
+    print_info "-> Stopping services from '${SECURE_COMPOSE_FILE}' (if script is being re-run)..."
+    sudo docker-compose -f "${SECURE_COMPOSE_FILE}" down --volumes >/dev/null 2>&1
+fi
 
 # --- Step 6: Run Nginx Temporarily to Obtain Certificate ---
-print_info "Starting temporary services to obtain certificate..."
+print_info "Starting temporary Nginx service to obtain certificate..."
 sudo docker-compose -f "${SECURE_COMPOSE_FILE}" up -d nginx
 
 print_info "Requesting Let's Encrypt certificate for ${DOMAIN_NAME}..."
@@ -106,8 +113,14 @@ EOF
 
 # --- Step 8: Launch the Full Secure Stack ---
 print_info "Launching the full application stack with SSL enabled..."
+# Stop the temporary nginx service and start the full stack (app and nginx)
 sudo docker-compose -f "${SECURE_COMPOSE_FILE}" up --build -d
 
-print_success "Secure setup is complete!"
-print_info "Your dashboard is now secured with an SSL certificate."
-print_info "Access it at: https://${DOMAIN_NAME}"
+if [ $? -eq 0 ]; then
+    print_success "Setup is complete!"
+    print_info "Your secure dashboard should now be available at: https://${DOMAIN_NAME}"
+    sudo docker-compose -f "${SECURE_COMPOSE_FILE}" ps
+else
+    print_error "Failed to start the final Docker stack. Please check logs."
+    exit 1
+fi
