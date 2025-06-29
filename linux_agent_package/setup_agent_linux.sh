@@ -88,7 +88,7 @@ SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
 # Run the monitor script every 15 minutes and redirect ALL output to the log file.
-*/2 * * * * root ${MONITOR_SCRIPT_PATH} >> ${AGENT_LOG_FILE} 2>&1
+*/60 * * * * root ${MONITOR_SCRIPT_PATH} >> ${AGENT_LOG_FILE} 2>&1
 EOF
 
 sudo chown root:root "${CRON_FILE_DEST}" && sudo chmod 644 "${CRON_FILE_DEST}"
