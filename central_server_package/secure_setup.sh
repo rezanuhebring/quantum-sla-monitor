@@ -1,6 +1,6 @@
 #!/bin/bash
 # secure_setup.sh - A dedicated, interactive script to set up Nginx and Let's Encrypt.
-# FINAL PRODUCTION VERSION - Uses a robust netstat check to prevent false positive port conflicts.
+# FINAL PRODUCTION VERSION - Includes robust dependency and port conflict checks.
 
 # --- Helper Functions ---
 print_info() { echo -e "\033[0;32m[INFO]\033[0m $1"; }
@@ -19,20 +19,28 @@ SECURE_COMPOSE_FILE="secure_docker-compose.yml"
 print_info "Starting Secure Reverse Proxy Setup..."
 if [ "$(id -u)" -ne 0 ]; then print_error "This script must be run with sudo: sudo $0"; exit 1; fi
 
-# --- Step 1: Precise Port Conflict Check (The Safety Check) ---
-print_info "Checking if required ports (80, 443) are available for validation..."
-# *** FIX: Use a more reliable netstat command to prevent false positives on ports like 8080 ***
-if sudo netstat -tuln | grep -qE ':80\s|:443\s'; then
+# --- Step 1: Install All Dependencies First ---
+print_info "Ensuring all required system packages are installed..."
+sudo apt-get update -y || { print_error "Apt update failed."; exit 1; }
+# *** FIX: Add net-tools to the list of installed packages ***
+sudo apt-get install -y certbot docker-compose net-tools || { print_error "Dependency installation failed."; exit 1; }
+
+# --- Step 2: Robust Port Conflict Check ---
+print_info "Checking if required ports (80, 443) are available..."
+# *** FIX: Use a robust check that verifies if the output is non-empty ***
+CONFLICT_CHECK=$(sudo netstat -tulpn | grep -E ':(80|443)\s')
+if [ -n "$CONFLICT_CHECK" ]; then
     print_error "One or more required ports (80, 443) are already in use."
-    print_warn "Please stop any other web servers or Docker containers using these ports and run this script again."
+    print_warn "This is likely another web server or Docker container."
+    print_warn "Please stop the conflicting service and run this script again."
     print_warn "Conflicting services detected:"
-    sudo netstat -tulpn | grep -E ':80\s|:443\s'
+    echo "$CONFLICT_CHECK"
     exit 1
 else
     print_success "Ports 80 and 443 are available."
 fi
 
-# --- Step 2: Gather User Input ---
+# --- Step 3: Gather User Input ---
 read -p "Enter the domain name that points to this server (e.g., sla.yourcompany.com): " DOMAIN_NAME
 if [ -z "$DOMAIN_NAME" ]; then print_error "Domain name cannot be empty. Aborting."; exit 1; fi
 read -p "Enter your email address (for Let's Encrypt renewal notices): " EMAIL_ADDRESS
@@ -41,17 +49,14 @@ read -p "Enter the public HTTPS port you want to use [8443]: " HTTPS_PORT; HTTPS
 read -p "Enter the public HTTP port for redirects [8080]: " HTTP_PORT; HTTP_PORT=${HTTP_PORT:-8080}
 print_info "Using ports: HTTP=${HTTP_PORT}, HTTPS=${HTTPS_PORT}"
 
-# --- Step 3: Dependencies & Directories ---
+# --- Step 4: Stop Host Services and Create Directories ---
 sudo systemctl stop apache2 >/dev/null 2>&1 && sudo systemctl disable apache2 >/dev/null 2>&1
-print_info "Ensuring Certbot is installed..."
-sudo apt-get update -y && sudo apt-get install -y certbot || { print_error "Certbot installation failed."; exit 1; }
 print_info "Creating directories..."
-sudo mkdir -p "${HOST_NGINX_CONF_DIR}" "${HOST_LETSENCRYPT_DIR}" "${HOST_CERTBOT_WEBROOT_DIR}"
+sudo mkdir -p "${HOST_NGINX_CONF_DIR}" "${HOST_LETSENCRYPT_DIR}"
 
-# --- Step 4: Let's Encrypt Challenge ---
-print_warn "To obtain an SSL certificate, a service MUST be temporarily available on standard port 80."
-# Using Certbot's standalone authenticator is simpler and more reliable than the webroot method with Docker.
-print_info "Requesting Let's Encrypt certificate for ${DOMAIN_NAME} using standalone mode..."
+# --- Step 5: Let's Encrypt Challenge using Standalone Mode ---
+print_warn "To obtain an SSL certificate, Certbot will temporarily use port 80."
+print_info "Requesting Let's Encrypt certificate for ${DOMAIN_NAME}..."
 sudo certbot certonly --standalone -d "${DOMAIN_NAME}" --email "${EMAIL_ADDRESS}" --agree-tos --no-eff-email --force-renewal --http-01-port 80
 if [ $? -ne 0 ]; then
     print_error "Certbot failed. Please check that your domain name points to this server's IP and port 80 is not blocked by a firewall."
@@ -59,9 +64,8 @@ if [ $? -ne 0 ]; then
 fi
 print_success "Certificate obtained successfully!"
 
-# --- Step 5: Create Final Nginx and Docker Compose Configurations ---
+# --- Step 6: Create Final Nginx and Docker Compose Configurations ---
 print_info "Generating final Nginx and Docker Compose configurations..."
-# Create the final Nginx config with SSL and custom port redirect
 sudo tee "${HOST_NGINX_CONF_DIR}/default.conf" > /dev/null <<EOF
 server {
     listen 80;
@@ -85,7 +89,6 @@ server {
 }
 EOF
 
-# Create the final docker-compose.yml with your custom ports
 tee "${SECURE_COMPOSE_FILE}" > /dev/null <<'EOF'
 services:
   app:
@@ -116,10 +119,8 @@ networks:
     driver: bridge
 EOF
 
-# --- Step 6: Launch the Full Secure Stack ---
+# --- Step 7: Launch the Full Secure Stack ---
 print_info "Launching the full application stack on your custom ports..."
-# Stop any previous instances of this specific stack before starting.
-sudo docker-compose -f "${SECURE_COMPOSE_FILE}" down --volumes >/dev/null 2>&1
 sudo docker-compose -f "${SECURE_COMPOSE_FILE}" up --build -d
 
 if [ $? -eq 0 ]; then
