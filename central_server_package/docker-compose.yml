@@ -3,27 +3,20 @@ version: '3.8'
 services:
   sla_monitor_central_app:
     build:
-      # FIX 1: The build context should be the current directory ('.') where
-      # your Dockerfile and 'app' directory are located.
       context: .
       dockerfile: Dockerfile
     container_name: sla_monitor_central_app
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      # CHANGED: The host port is now 8080, which maps to port 80 inside the container.
+      - "8080:80"
+      # CHANGED: The host port is now 8443, which maps to port 443 inside the container.
+      - "8443:443"
     volumes:
-      # FIX 2: Use the ABSOLUTE path from your setup script for the data volume.
-      # This ensures the container sees the database created by the setup script.
-      # HOST_PATH : CONTAINER_PATH
+      # These volume paths are correct and do not need to be changed.
       - /srv/sla_monitor/central_app_data/opt_sla_monitor:/opt/sla_monitor
-
-      # FIX 3: Mount the container's Apache log path to the host path from the setup script.
       - /srv/sla_monitor/central_app_data/apache_logs:/var/log/apache2
-      
-      # FIX 3 (cont.): Mount the container's API log FILE to the host FILE from the setup script.
       - /srv/sla_monitor/central_app_data/api_logs/sla_api.log:/var/log/sla_api.log
-
     environment:
-      # This is correct. It tells the base php:apache image to forward logs.
+      # This is correct and does not need to be changed.
       APACHE_LOG_DIR: /var/log/apache2
