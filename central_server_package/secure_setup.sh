@@ -1,6 +1,6 @@
 #!/bin/bash
 # secure_setup.sh - A dedicated, interactive script to set up Nginx and Let's Encrypt.
-# FINAL SAFE VERSION - Checks for port conflicts and fails gracefully instead of removing containers.
+# FINAL PRODUCTION VERSION - Includes permissions fix for Certbot webroot.
 
 # --- Helper Functions ---
 print_info() { echo -e "\033[0;32m[INFO]\033[0m $1"; }
@@ -20,42 +20,34 @@ SECURE_COMPOSE_FILE="secure_docker-compose.yml"
 print_info "Starting Secure Reverse Proxy Setup..."
 if [ "$(id -u)" -ne 0 ]; then print_error "This script must be run with sudo: sudo $0"; exit 1; fi
 
-# --- Step 1: Check for Port Conflicts (The Safety Check) ---
-print_info "Checking if required ports (80, 443) are available..."
+# --- Step 1: Check for Port Conflicts ---
 if sudo ss -tulpn | grep -q ':80' || sudo ss -tulpn | grep -q ':443'; then
     print_error "One or more required ports (80, 443) are already in use."
-    print_error "This is likely because your original SLA monitor is running."
-    print_warn "Please stop the existing service manually before proceeding."
-    print_warn "Run this command from your project directory:"
-    echo
-    print_warn "    sudo docker-compose down --volumes"
-    echo
-    print_error "Aborting setup. Please stop the conflicting service and run this script again."
+    print_warn "Please stop any other web servers or Docker containers using these ports."
+    print_warn "If your original SLA monitor is running, stop it with: sudo docker-compose down --volumes"
     exit 1
-else
-    print_success "Ports 80 and 443 are available."
 fi
 
 # --- Step 2: Gather User Input ---
-print_info "This script will configure Nginx with a free SSL certificate from Let's Encrypt."
 read -p "Enter the domain name that points to this server (e.g., sla.yourcompany.com): " DOMAIN_NAME
 if [ -z "$DOMAIN_NAME" ]; then print_error "Domain name cannot be empty. Aborting."; exit 1; fi
-
 read -p "Enter your email address (for Let's Encrypt renewal notices): " EMAIL_ADDRESS
 if [ -z "$EMAIL_ADDRESS" ]; then print_error "Email address cannot be empty. Aborting."; exit 1; fi
 
 # --- Step 3: Stop Conflicting Services & Install Certbot ---
-print_info "Stopping any running 'apache2' service on the host..."
-sudo systemctl stop apache2 >/dev/null 2>&1
-sudo systemctl disable apache2 >/dev/null 2>&1
-
+sudo systemctl stop apache2 >/dev/null 2>&1 && sudo systemctl disable apache2 >/dev/null 2>&1
 print_info "Ensuring Certbot is installed..."
 sudo apt-get update -y && sudo apt-get install -y certbot || { print_error "Certbot installation failed."; exit 1; }
 
-# --- Step 4: Create Directories & Temporary Nginx Config ---
+# --- Step 4: Create Directories & Set Permissions ---
 print_info "Creating directories for Nginx and Certbot..."
 sudo mkdir -p "${HOST_NGINX_CONF_DIR}" "${HOST_LETSENCRYPT_DIR}" "${HOST_CERTBOT_WEBROOT_DIR}"
 
+# *** FIX: Set correct permissions so the Nginx container can read the challenge files ***
+print_info "Setting permissions for Certbot directory..."
+sudo chmod -R 755 "${HOST_CERTBOT_WEBROOT_DIR}"
+
+# --- Step 5: Create Temporary Nginx Config for Challenge ---
 print_info "Generating temporary Nginx configuration for SSL challenge..."
 sudo tee "${HOST_NGINX_CONF_DIR}/default.conf" > /dev/null <<EOF
 server {
@@ -70,9 +62,8 @@ server {
 }
 EOF
 
-# --- Step 5: Run Nginx Temporarily to Obtain Certificate ---
+# --- Step 6: Run Nginx Temporarily to Obtain Certificate ---
 print_info "Starting temporary Nginx service to obtain certificate..."
-# We explicitly use the secure compose file. Because the ports were checked, this is safe.
 sudo docker-compose -f "${SECURE_COMPOSE_FILE}" up -d nginx
 
 print_info "Requesting Let's Encrypt certificate for ${DOMAIN_NAME}..."
@@ -84,7 +75,7 @@ if [ $? -ne 0 ]; then
 fi
 print_success "Certificate obtained successfully!"
 
-# --- Step 6: Create Final Nginx Config ---
+# --- Step 7: Create Final Nginx Config ---
 print_info "Creating final Nginx configuration with SSL..."
 sudo tee "${HOST_NGINX_CONF_DIR}/default.conf" > /dev/null <<EOF
 server {
@@ -114,9 +105,8 @@ server {
 }
 EOF
 
-# --- Step 7: Launch the Full Secure Stack ---
+# --- Step 8: Launch the Full Secure Stack ---
 print_info "Launching the full application stack with SSL enabled..."
-# This command will stop the temporary nginx service and start the full stack (app and nginx)
 sudo docker-compose -f "${SECURE_COMPOSE_FILE}" up --build -d
 
 if [ $? -eq 0 ]; then
