@@ -22,7 +22,7 @@ $AgentSourcePath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $AgentInstallDir = "C:\SLA_Monitor_Agent"
 $SpeedtestInstallDir = Join-Path $AgentInstallDir "speedtest"
 $MonitorScriptName = "Monitor-InternetAgent.ps1"
-$ConfigTemplateName = "agent_config.psd1"
+$ConfigTemplateName = "agent_config.ps1"
 
 # --- 1. Install Dependencies (Ookla Speedtest) ---
 if (-not (Test-Path (Join-Path $SpeedtestInstallDir "speedtest.exe"))) {
