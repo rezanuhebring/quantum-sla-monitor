@@ -16,7 +16,7 @@ $ENABLE_HTTP      = $true
 $ENABLE_SPEEDTEST = $true
     
 # --- Test Parameters ---
-$PING_HOSTS       = @("8.8.8.8", "1.1.1.1", "google.com")
+$PING_HOSTS       = @("8.8.8.8", "8.8.4.4", "google.com")
     
 # --- Optional Settings ---
 $AGENT_TYPE       = "Client"

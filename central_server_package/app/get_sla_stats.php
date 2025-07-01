@@ -1,6 +1,7 @@
 <?php
 // get_sla_stats.php - FINAL PRODUCTION VERSION
 // Enhanced to provide a summary of all agent statuses and detailed data in one call.
+// System-wide SLA is now calculated for ISP-only agents.
 
 ini_set('display_errors', 0); // Never display errors on a JSON endpoint
 ini_set('log_errors', 1);
@@ -89,44 +90,42 @@ try {
         $speed_rows = []; $speed_result = $speed_chart_stmt->execute(); while($row = $speed_result->fetchArray(SQLITE3_ASSOC)) { $speed_rows[] = $row; }
         $response_data['speed_chart_data'] = array_reverse($speed_rows);
         $speed_chart_stmt->close();
-        
     } else {
         // --- OVERALL SUMMARY VIEW ---
         $response_data['current_isp_profile_id'] = null; // Explicitly set for summary
         
-        // Get latest status for ALL agents for the summary view
+        // Get latest status for all agents for the summary view lists
         $all_status_query = $db->query("SELECT sm.* FROM sla_metrics sm INNER JOIN (SELECT isp_profile_id, MAX(id) as max_id FROM sla_metrics GROUP BY isp_profile_id) as latest ON sm.isp_profile_id = latest.isp_profile_id AND sm.id = latest.max_id INNER JOIN isp_profiles ip ON sm.isp_profile_id = ip.id WHERE ip.is_active = 1");
         while ($status = $all_status_query->fetchArray(SQLITE3_ASSOC)) { $response_data['all_agent_status'][$status['isp_profile_id']] = $status; }
         
-        // Fetch cumulative chart data
-        $days_for_cumulative_chart = 30;
-        $start_date_cumulative = (new DateTime("-{$days_for_cumulative_chart} days", new DateTimeZone("UTC")))->format("Y-m-d\TH:i:s\Z");
-        
+        // Fetch cumulative chart data (system-wide)
         $cumulative_ping_stmt = $db->prepare("SELECT strftime('%Y-%m-%d', timestamp) as day, AVG(avg_rtt_ms) as avg_rtt, AVG(avg_loss_percent) as avg_loss, AVG(avg_jitter_ms) as avg_jitter FROM sla_metrics WHERE timestamp >= :start_date GROUP BY day ORDER BY day ASC");
-        $cumulative_ping_stmt->bindValue(':start_date', $start_date_cumulative);
+        $cumulative_ping_stmt->bindValue(':start_date', (new DateTime("-30 days", new DateTimeZone("UTC")))->format("Y-m-d\TH:i:s\Z"));
         $ping_res = $cumulative_ping_stmt->execute();
         while($row = $ping_res->fetchArray(SQLITE3_ASSOC)) { $response_data['cumulative_ping_chart_data'][] = $row; }
         $cumulative_ping_stmt->close();
 
         $cumulative_speed_stmt = $db->prepare("SELECT strftime('%Y-%m-%d', timestamp) as day, AVG(speedtest_download_mbps) as avg_dl, AVG(speedtest_upload_mbps) as avg_ul FROM sla_metrics WHERE speedtest_status = 'COMPLETED' AND timestamp >= :start_date GROUP BY day ORDER BY day ASC");
-        $cumulative_speed_stmt->bindValue(':start_date', $start_date_cumulative);
+        $cumulative_speed_stmt->bindValue(':start_date', (new DateTime("-30 days", new DateTimeZone("UTC")))->format("Y-m-d\TH:i:s\Z"));
         $speed_res = $cumulative_speed_stmt->execute();
         while($row = $speed_res->fetchArray(SQLITE3_ASSOC)) { $response_data['cumulative_speed_chart_data'][] = $row; }
         $cumulative_speed_stmt->close();
     }
     
-    // --- CALCULATIONS FOR SLA PERIODS (Works for both views) ---
+    // --- CALCULATIONS FOR SLA PERIODS ---
     $period_defs = [
-        'last_1_day' => ['days' => (int)($config_values['SLA_PERIOD_1_DAYS'] ?? 1), 'label' => 'Last 24 Hours'],
-        'last_7_days' => ['days' => (int)($config_values['SLA_PERIOD_7_DAYS'] ?? 7), 'label' => 'Last 7 Days'],
-        'last_30_days' => ['days' => (int)($config_values['SLA_PERIOD_CUSTOM_DAYS'] ?? 30), 'label' => 'Last 30 Days']
+        'last_1_day' => ['days' => 1, 'label' => 'Last 24 Hours'],
+        'last_7_days' => ['days' => 7, 'label' => 'Last 7 Days'],
+        'last_30_days' => ['days' => 30, 'label' => 'Last 30 Days']
     ];
-    $base_query_sql = "SELECT COUNT(*) as total_intervals, SUM(sla_met_interval) as met_intervals FROM sla_metrics WHERE timestamp >= :start_date";
+    $base_query_sql = "SELECT COUNT(*) as total_intervals, SUM(sm.sla_met_interval) as met_intervals FROM sla_metrics sm";
 
+    $query_sql = "";
     if ($current_isp_profile_id_req) {
-        $query_sql = $base_query_sql . " AND isp_profile_id = :id";
+        $query_sql = $base_query_sql . " WHERE sm.timestamp >= :start_date AND sm.isp_profile_id = :id";
     } else {
-        $query_sql = $base_query_sql;
+        // --- FIX #1: Calculate System-Wide SLA for ISP agents ONLY ---
+        $query_sql = $base_query_sql . " JOIN isp_profiles ip ON sm.isp_profile_id = ip.id WHERE sm.timestamp >= :start_date AND ip.agent_type = 'ISP'";
     }
     
     foreach ($period_defs as $key => $def) {
@@ -138,7 +137,7 @@ try {
         $row = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
         $total = (int)($row['total_intervals'] ?? 0); $met = (int)($row['met_intervals'] ?? 0);
         $achieved = ($total > 0) ? round(($met / $total) * 100, 2) : 0.0;
-        $response_data['periods'][$key] = ['label' => $def['label'], 'total_intervals' => $total, 'met_intervals' => $met, 'achieved_percentage' => $achieved, 'is_target_met' => ($achieved >= $response_data['target_sla_percentage'])];
+        $response_data['periods'][$key] = [ 'label' => $def['label'], 'total_intervals' => $total, 'met_intervals' => $met, 'achieved_percentage' => $achieved, 'is_target_met' => ($achieved >= $response_data['target_sla_percentage'])];
     }
     
     $db->close();
