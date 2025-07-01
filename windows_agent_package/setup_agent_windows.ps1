@@ -2,15 +2,13 @@
 .SYNOPSIS
     Automated setup for the Windows PowerShell SLA Monitoring Agent. FINAL PRODUCTION VERSION.
 .DESCRIPTION
-    This script is self-elevating and avoids modifying the system PATH variable by
-    writing the speedtest.exe location directly into the agent's config file,
-    which is the most reliable method.
+    This script includes a robust and reliable method for adding the Speedtest path
+    to the agent's configuration file, fixing the "path not found" error.
 #>
 param()
 
 # --- Self-Elevation to Administrator ---
 if (-Not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "Requesting Administrator privileges..." -ForegroundColor Yellow
     $arguments = "-ExecutionPolicy Bypass -File `"$($myInvocation.mycommand.definition)`""
     Start-Process powershell -Verb runAs -ArgumentList $arguments
     exit
@@ -24,7 +22,7 @@ $AgentInstallDir = "C:\SLA_Monitor_Agent"
 $SpeedtestInstallDir = Join-Path $AgentInstallDir "speedtest"
 $SpeedtestExePath = Join-Path $SpeedtestInstallDir "speedtest.exe"
 $MonitorScriptName = "Monitor-InternetAgent.ps1"
-$ConfigTemplateName = "agent_config.ps1" # Using .ps1 for simplicity as requested.
+$ConfigTemplateName = "agent_config.ps1" # Using .ps1 for simplicity
 $DestinationConfigPath = Join-Path $AgentInstallDir $ConfigTemplateName
 
 # --- 1. Install Dependencies (Ookla Speedtest) ---
@@ -33,13 +31,9 @@ if (-not (Test-Path $SpeedtestExePath)) {
     $SpeedtestZipUrl = "https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-win64.zip"
     $TempZipPath = Join-Path $env:TEMP "speedtest.zip"
     try {
-        Write-Host "- Downloading from $SpeedtestZipUrl..."
-        Invoke-WebRequest -Uri $SpeedtestZipUrl -OutFile $TempZipPath -UseBasicParsing -ErrorAction Stop
-        Write-Host "- Unzipping to $SpeedtestInstallDir..."
-        New-Item -Path $SpeedtestInstallDir -ItemType Directory -Force | Out-Null
-        Expand-Archive -Path $TempZipPath -DestinationPath $SpeedtestInstallDir -Force -ErrorAction Stop
-        Write-Host "- Cleaning up temporary files..."
-        Remove-Item $TempZipPath -Force
+        Write-Host "- Downloading from $SpeedtestZipUrl..."; Invoke-WebRequest -Uri $SpeedtestZipUrl -OutFile $TempZipPath -UseBasicParsing -ErrorAction Stop
+        Write-Host "- Unzipping to $SpeedtestInstallDir..."; New-Item -Path $SpeedtestInstallDir -ItemType Directory -Force | Out-Null; Expand-Archive -Path $TempZipPath -DestinationPath $SpeedtestInstallDir -Force -ErrorAction Stop
+        Write-Host "- Cleaning up temporary files..."; Remove-Item $TempZipPath -Force
         Write-Host "Speedtest installation successful." -ForegroundColor Green
     } catch { Write-Error "Failed to download or install Speedtest: $($_.Exception.Message)"; Read-Host "Press Enter to exit"; exit 1 }
 } else { Write-Host "Ookla Speedtest is already installed." }
@@ -57,28 +51,25 @@ try {
 } catch { Write-Error "Failed to copy agent files: $($_.Exception.Message)"; Read-Host "Press Enter to exit"; exit 1 }
 
 # --- 3. Add Speedtest Path to Agent Config ---
-Write-Host "Adding Speedtest executable path to agent configuration..."
+Write-Host "Verifying Speedtest path in agent configuration..."
 try {
-    # This line will be added to the agent's config file.
-    $ConfigLine = "`$SPEEDTEST_EXE_PATH = `"$SpeedtestExePath`""
-    $ConfigContent = Get-Content -Path $DestinationConfigPath
-    # Only add the line if it doesn't already exist.
-    if ($ConfigContent -notmatch [regex]::Escape('$SPEEDTEST_EXE_PATH')) {
+    # *** FIX: Use robust Select-String to check if the line already exists ***
+    $LineExists = Select-String -Path $DestinationConfigPath -Pattern '^\$SPEEDTEST_EXE_PATH' -Quiet
+    if (-not $LineExists) {
+        $ConfigLine = "`n`$SPEEDTEST_EXE_PATH = `"$SpeedtestExePath`""
         Add-Content -Path $DestinationConfigPath -Value $ConfigLine
-        Write-Host "Speedtest path configured in '$DestinationConfigPath'." -ForegroundColor Green
-    } else { Write-Host "Speedtest path already configured in config file." }
+        Write-Host "Speedtest path configured successfully in '$DestinationConfigPath'." -ForegroundColor Green
+    } else {
+        Write-Host "Speedtest path is already correctly configured in the file."
+    }
 } catch {
     Write-Error "Failed to update config file with Speedtest path. Error: $($_.Exception.Message)"
 }
 
 # --- 4. Accept License Terms Silently ---
 Write-Host "Attempting to accept Speedtest license terms..."
-try {
-    # Use the '&' call operator to run the command from its full path
-    & $SpeedtestExePath --accept-license --accept-gdpr | Out-Null
-} catch {
-    Write-Warning "Could not run speedtest.exe to accept license. This may be a temporary network issue. Error: $($_.Exception.Message)"
-}
+try { & $SpeedtestExePath --accept-license --accept-gdpr | Out-Null }
+catch { Write-Warning "Could not run speedtest.exe to accept license. This may be a temporary network issue. Error: $($_.Exception.Message)" }
 
 # --- 5. Create/Update Scheduled Task ---
 $TaskName = "InternetSLAMonitorAgent"
@@ -86,7 +77,7 @@ $TaskAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoPr
 $TaskTrigger = New-ScheduledTaskTrigger -RepetitionInterval (New-TimeSpan -Minutes 15) -Once -At (Get-Date)
 $TaskPrincipal = New-ScheduledTaskPrincipal -UserID "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 $TaskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1) -MultipleInstances IgnoreNew
-Write-Host "Registering scheduled task '$TaskName' to run every 15 minutes..."
+Write-Host "Registering scheduled task '$TaskName'..."
 try {
     Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false
     Register-ScheduledTask -TaskName $TaskName -Action $TaskAction -Trigger $TaskTrigger -Principal $TaskPrincipal -Settings $TaskSettings -ErrorAction Stop
@@ -97,7 +88,7 @@ try {
 Write-Host "`nWindows SLA Monitor Agent Setup Complete." -ForegroundColor Green
 Write-Host "--------------------------------------------------------------------"
 Write-Host "NEXT STEPS:"
-Write-Host "1. CRITICAL: Edit the configuration file with this agent's unique details:"
+Write-Host "1. CRITICAL: Review/edit the configuration file with this agent's unique details:"
 Write-Host "   notepad `"$DestinationConfigPath`""
 Write-Host "2. Test the script by running it directly from an Administrator PowerShell:"
 Write-Host "   & `"$AgentInstallDir\$MonitorScriptName`""
