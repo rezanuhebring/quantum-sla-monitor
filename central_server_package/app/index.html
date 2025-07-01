@@ -29,11 +29,11 @@
         .dark-mode .download-button:hover { background-color: #985eff; }
         .agent-lists-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 30px; }
         .agent-list { list-style-type: none; padding: 0; }
-        .agent-list li { background-color: var(--bg-color); margin-bottom: 10px; padding: 15px; border-radius: 6px; border-left: 5px solid var(--grey); transition: transform 0.2s, box-shadow 0.2s; }
+        .agent-list li { background-color: var(--bg-color); margin-bottom: 10px; padding: 15px; border-radius: 6px; border-left: 5px solid var(--grey); transition: transform 0.2s, box-shadow 0.2s; cursor: pointer; }
         .agent-list li.status-up { border-left-color: var(--green); } .agent-list li.status-down { border-left-color: var(--red); }
         .agent-list li:hover { transform: translateY(-2px); box-shadow: 0 6px 15px var(--shadow-color); }
         .agent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .agent-name { font-weight: bold; font-size: 1.1em; color: var(--link-color); text-decoration: none; cursor: pointer; } .agent-name:hover { text-decoration: underline; }
+        .agent-name { font-weight: bold; font-size: 1.1em; color: var(--link-color); text-decoration: none; }
         .status-dot { height: 12px; width: 12px; background-color: var(--grey); border-radius: 50%; display: inline-block; }
         .status-dot.up { background-color: var(--green); } .status-dot.down { background-color: var(--red); }
         .agent-metrics { font-size: 0.9em; display: flex; justify-content: space-between; flex-wrap: wrap; }
@@ -58,30 +58,8 @@
         <div class="top-info"><div class="isp-selector-container"><label for="isp-profile-selector">View Dashboard:</label><select id="isp-profile-selector"><option value="">-- Show All Agents Summary --</option></select></div><div id="last-checked" class="timestamp">Last Update: Loading...</div></div>
         <div id="loader" class="loader"></div>
         <div id="dashboard-content" class="hidden">
-            <!-- Summary View -->
-            <div id="summary-view" class="hidden">
-                <h2>System-Wide Health Summary</h2>
-                <div class="grid-container">
-                    <div class="metric-card"><h3>System-Wide SLA (Target: <span id="summary-sla-target">99.5</span>%)</h3><div id="overall-sla-periods"></div></div>
-                    <div class="metric-card"><h3>System-Wide Average Ping/Loss</h3><div class="chart-container"><canvas id="cumulativeRttChart"></canvas></div></div>
-                    <div class="metric-card"><h3>System-Wide Average Speedtest</h3><div class="chart-container"><canvas id="cumulativeSpeedChart"></canvas></div></div>
-                </div>
-                <div class="agent-lists-container" style="margin-top: 20px;"><div class="metric-card"><h3>Active ISP Agents</h3><ul id="isp-agent-list" class="agent-list"></ul></div><div class="metric-card"><h3>Active Client Agents</h3><ul id="client-agent-list" class="agent-list"></ul></div></div>
-            </div>
-            <!-- Detail View -->
-            <div id="detail-view" class="hidden">
-                <h2 id="agent-name-header"></h2>
-                <div class="download-button-container"><a id="individual-csv-download" href="#" class="download-button"><span role="img" aria-label="floppy disk">💾</span> Download Agent Data (CSV)</a></div>
-                <div class="grid-container">
-                    <div class="metric-card"><h3><span role="img" aria-label="signal">📶</span> Ping & Connectivity</h3><p><span>Overall Status:</span> <strong id="ping-status">N/A</strong></p><p><span>Average RTT:</span> <strong id="ping-rtt">N/A</strong></p><p><span>Average Loss:</span> <strong id="ping-loss">N/A</strong></p><p><span>Average Jitter:</span> <strong id="ping-jitter">N/A</strong></p></div>
-                    <div class="metric-card"><h3><span role="img" aria-label="gauge">💨</span> Speed Test</h3><p><span>Status:</span> <strong id="speed-status">N/A</strong></p><p><span>Download:</span> <strong id="speed-dl">N/A</strong></p><p><span>Upload:</span> <strong id="speed-ul">N/A</strong></p><p><span>Ping (Speedtest):</span> <strong id="speed-ping">N/A</strong></p></div>
-                    <div class="metric-card"><h3><span role="img" aria-label="target">🎯</span> Service Level Agreement</h3><div id="historical-sla-data"></div></div>
-                </div>
-                <div class="grid-container" style="margin-top: 20px;">
-                    <div class="metric-card"><h3>Recent RTT, Jitter (ms) & Loss (%)</h3><div class="chart-container"><canvas id="rttChart"></canvas></div></div>
-                    <div class="metric-card"><h3>Recent Download & Upload Speed (Mbps)</h3><div class="chart-container"><canvas id="speedTestChart"></canvas></div></div>
-                </div>
-            </div>
+            <div id="summary-view" class="hidden"><h2>System-Wide Health Summary</h2><div class="grid-container"><div class="metric-card"><h3>System-Wide SLA (Target: <span id="summary-sla-target">99.5</span>%)</h3><div id="overall-sla-periods"></div></div><div class="metric-card"><h3>System-Wide Average Ping/Loss</h3><div class="chart-container"><canvas id="cumulativeRttChart"></canvas></div></div><div class="metric-card"><h3>System-Wide Average Speedtest</h3><div class="chart-container"><canvas id="cumulativeSpeedChart"></canvas></div></div></div><div class="agent-lists-container" style="margin-top: 20px;"><div class="metric-card"><h3>Active ISP Agents</h3><ul id="isp-agent-list" class="agent-list"></ul></div><div class="metric-card"><h3>Active Client Agents</h3><ul id="client-agent-list" class="agent-list"></ul></div></div></div>
+            <div id="detail-view" class="hidden"><h2 id="agent-name-header"></h2><div class="download-button-container"><a id="individual-csv-download" href="#" class="download-button"><span role="img" aria-label="floppy disk">💾</span> Download Agent Data (CSV)</a></div><div class="grid-container"><div class="metric-card"><h3><span role="img" aria-label="signal">📶</span> Ping & Connectivity</h3><p><span>Overall Status:</span> <strong id="ping-status">N/A</strong></p><p><span>Average RTT:</span> <strong id="ping-rtt">N/A</strong></p><p><span>Average Loss:</span> <strong id="ping-loss">N/A</strong></p><p><span>Average Jitter:</span> <strong id="ping-jitter">N/A</strong></p></div><div class="metric-card"><h3><span role="img" aria-label="gauge">💨</span> Speed Test</h3><p><span>Status:</span> <strong id="speed-status">N/A</strong></p><p><span>Download:</span> <strong id="speed-dl">N/A</strong></p><p><span>Upload:</span> <strong id="speed-ul">N/A</strong></p><p><span>Ping (Speedtest):</span> <strong id="speed-ping">N/A</strong></p></div><div class="metric-card"><h3><span role="img" aria-label="target">🎯</span> Service Level Agreement</h3><div id="historical-sla-data"></div></div></div><div class="grid-container" style="margin-top: 20px;"><div class="metric-card"><h3>Recent RTT, Jitter (ms) & Loss (%)</h3><div class="chart-container"><canvas id="rttChart"></canvas></div></div><div class="metric-card"><h3>Recent Download & Upload Speed (Mbps)</h3><div class="chart-container"><canvas id="speedTestChart"></canvas></div></div></div></div>
         </div>
     </div>
     <script>
@@ -109,7 +87,10 @@
                 const data = await response.json();
                 if (data.error) throw new Error(data.message || 'API returned an error.');
                 
-                updateProfileSelector(data.isp_profiles, agentId);
+                if(!profileSelector.getAttribute('data-populated')) {
+                    updateProfileSelector(data.isp_profiles, agentId);
+                }
+
                 setText('last-checked', `Last Update: ${new Date().toLocaleString()}`);
 
                 if (agentId) {
@@ -117,6 +98,10 @@
                 } else {
                     renderSummaryView(data);
                 }
+
+                if (refreshIntervalTimer) clearInterval(refreshIntervalTimer);
+                refreshIntervalTimer = setInterval(() => fetchAndUpdateDashboard(profileSelector.value || null), data.dashboard_refresh_interval_ms || 60000);
+
             } catch (error) {
                 console.error("Failed to render dashboard data:", error);
                 const errorMessage = `Could not load dashboard data. ${error.message}.`;
@@ -128,9 +113,6 @@
         }
 
         function updateProfileSelector(profiles, selectedId) {
-            if (profileSelector.getAttribute('data-populated')) {
-                profileSelector.value = selectedId || ""; return;
-            }
             profileSelector.innerHTML = '<option value="">-- Show All Agents Summary --</option>';
             (profiles || []).forEach(profile => {
                 const option = document.createElement('option');
@@ -142,7 +124,6 @@
             profileSelector.setAttribute('data-populated', 'true');
         }
 
-        // *** FIX: This entire function was missing and has now been added ***
         function renderSummaryView(data) {
             document.title = "Overall SLA Monitor";
             setText('summary-sla-target', data.target_sla_percentage);
@@ -151,7 +132,8 @@
             (Object.values(data.periods) || []).forEach(period => {
                 const itemDiv = document.createElement('div');
                 itemDiv.className = 'sla-period-item';
-                itemDiv.innerHTML = `<span class="sla-period-label">${period.label}:</span> <span class="sla-percentage ${period.is_target_met ? 'met' : 'not-met'}">${period.achieved_percentage}%</span>`;
+                const metClass = period.is_target_met ? 'met' : 'not-met';
+                itemDiv.innerHTML = `<span class="sla-period-label">${period.label}:</span> <span class="sla-percentage ${metClass}">${period.achieved_percentage}%</span>`;
                 overallSlaContainer.appendChild(itemDiv);
             });
             
@@ -169,16 +151,18 @@
 
                 const li = document.createElement('li');
                 li.className = `status-${statusClass}`;
-                li.innerHTML = `<div class="agent-header"><a href="#" class="agent-name" data-id="${profile.id}">${profile.agent_name}</a><span class="status-dot ${statusClass}"></span></div><div class="agent-metrics"><span>RTT: <strong>${rtt}</strong></span><span>Loss: <strong>${loss}</strong></span><span style="font-size:0.8em; opacity:0.7;">Last Check: ${lastCheck}</span></div>`;
+                li.dataset.id = profile.id;
+                li.innerHTML = `<div class="agent-header"><span class="agent-name">${profile.agent_name}</span><span class="status-dot ${statusClass}"></span></div><div class="agent-metrics"><span>RTT: <strong>${rtt}</strong></span><span>Loss: <strong>${loss}</strong></span><span style="font-size:0.8em; opacity:0.7;">Last Check: ${lastCheck}</span></div>`;
+                
                 if (profile.agent_type === 'ISP') { ispList.appendChild(li); } 
                 else { clientList.appendChild(li); }
             });
 
             if(ispList.children.length === 0) ispList.innerHTML = '<li>No active ISP agents found.</li>';
             if(clientList.children.length === 0) clientList.innerHTML = '<li>No active Client agents found.</li>';
-
-            renderChart(cumulativeRttChartInstance, 'cumulativeRttChart', { 'Avg RTT (ms)': 'avg_rtt', 'Avg Loss (%)': 'avg_loss', 'Avg Jitter (ms)': 'avg_jitter' }, data.cumulative_ping_chart_data, 'day', 'cumulativeRttChart');
-            renderChart(cumulativeSpeedChartInstance, 'cumulativeSpeedChart', { 'Avg Download (Mbps)': 'avg_dl', 'Avg Upload (Mbps)': 'avg_ul' }, data.cumulative_speed_chart_data, 'day', 'cumulativeSpeedChart');
+            
+            renderChart('cumulativeRttChart', { 'Avg RTT (ms)': 'avg_rtt', 'Avg Loss (%)': 'avg_loss', 'Avg Jitter (ms)': 'avg_jitter' }, data.cumulative_ping_chart_data, 'day');
+            renderChart('cumulativeSpeedChart', { 'Avg Download (Mbps)': 'avg_dl', 'Avg Upload (Mbps)': 'avg_ul' }, data.cumulative_speed_chart_data, 'day');
 
             summaryView.classList.remove('hidden');
             detailView.classList.add('hidden');
@@ -210,19 +194,33 @@
                 downloadLink.setAttribute('download', `sla_history_${safeFilename}.csv`);
             }
             
-            renderChart(rttChartInstance, 'rttChart', { 'Avg RTT (ms)': 'avg_rtt_ms', 'Avg Jitter (ms)': 'avg_jitter_ms', 'Packet Loss (%)': 'avg_loss_percent' }, data.rtt_chart_data, 'timestamp', 'rttChart');
-            renderChart(speedChartInstance, 'speedTestChart', { 'Download (Mbps)': 'speedtest_download_mbps', 'Upload (Mbps)': 'speedtest_upload_mbps' }, data.speed_chart_data, 'timestamp', 'speedTestChart');
+            renderChart('rttChart', { 'Avg RTT (ms)': 'avg_rtt_ms', 'Avg Jitter (ms)': 'avg_jitter_ms', 'Packet Loss (%)': 'avg_loss_percent' }, data.rtt_chart_data, 'timestamp');
+            renderChart('speedTestChart', { 'Download (Mbps)': 'speedtest_download_mbps', 'Upload (Mbps)': 'speedtest_upload_mbps' }, data.speed_chart_data, 'timestamp');
             
             summaryView.classList.add('hidden');
             detailView.classList.remove('hidden');
         }
         
-        // This is now a single, generic chart rendering function
-        function renderChart(chartVar, canvasId, seriesConfig, data, xKey, chartId) {
+        // *** FIX: New, robust chart rendering function ***
+        function renderChart(canvasId, seriesConfig, data, xKey) {
             const ctx = document.getElementById(canvasId)?.getContext('2d');
             if (!ctx) return;
-            if (chartVar) chartVar.destroy();
-            const isDark = document.body.classList.contains('dark-mode'); const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'; const fontColor = isDark ? '#e0e0e0' : '#333';
+
+            let chartInstance;
+            switch(canvasId) {
+                case 'rttChart': chartInstance = rttChartInstance; break;
+                case 'speedTestChart': chartInstance = speedChartInstance; break;
+                case 'cumulativeRttChart': chartInstance = cumulativeRttChartInstance; break;
+                case 'cumulativeSpeedChart': chartInstance = cumulativeSpeedChartInstance; break;
+            }
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+            
+            const isDark = document.body.classList.contains('dark-mode');
+            const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+            const fontColor = isDark ? '#e0e0e0' : '#333';
             const colors = ['54, 162, 235', '255, 159, 64', '255, 99, 132', '75, 192, 192', '153, 102, 255'];
             
             const datasets = Object.entries(seriesConfig).map(([label, key], index) => ({
@@ -233,20 +231,31 @@
                 type: label.includes('%') ? 'bar' : 'line',
                 tension: 0.3,
                 fill: true,
-                yAxisID: label.includes('%') ? 'y1' : (label.includes('Jitter') ? 'y2' : 'y') // Assign axes
+                yAxisID: label.includes('%') ? 'y1' : (label.includes('Jitter') ? 'y2' : 'y')
             }));
 
-            const chartOptions = { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { x: { type: xKey === 'timestamp' ? 'time' : 'category', time: { unit: 'hour', tooltipFormat: 'PPpp' }, grid: { color: gridColor }, ticks: { color: fontColor } }, y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: fontColor } } }, plugins: { legend: { labels: { color: fontColor } } } };
-            // Add secondary axes if needed for RTT charts
-            if(chartId === 'rttChart' || chartId === 'cumulativeRttChart'){
-                chartOptions.scales.y1 = { type: 'linear', display: true, position: 'right', beginAtZero: true, max: 100, title: { display: true, text: '% Loss', color: fontColor }, grid: { drawOnChartArea: false }, ticks: {color: fontColor} };
-                chartOptions.scales.y2 = { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Jitter (ms)', color: fontColor }, grid: { drawOnChartArea: false }, ticks: {color: fontColor} };
+            const chartOptions = { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { x: { type: xKey === 'timestamp' ? 'time' : 'category', time: { unit: 'hour', tooltipFormat: 'PPpp' }, grid: { color: gridColor }, ticks: { color: fontColor } }, y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: fontColor }, title: { display: true, text: 'ms', color: fontColor} } }, plugins: { legend: { labels: { color: fontColor } } } };
+            
+            if (canvasId === 'rttChart' || canvasId === 'cumulativeRttChart') {
+                chartOptions.scales.y1 = { type: 'linear', display: true, position: 'right', beginAtZero: true, max: 100, title: { display: true, text: '% Loss', color: fontColor }, grid: { drawOnChartArea: false }, ticks: { color: fontColor } };
+                chartOptions.scales.y2 = { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Jitter (ms)', color: fontColor }, grid: { drawOnChartArea: false }, ticks: { color: fontColor } };
             }
-            window[chartId] = new Chart(ctx, {type: 'line', data: { labels: data.map(d => d[xKey]), datasets: datasets }, options: chartOptions });
+             if (canvasId === 'speedTestChart' || canvasId === 'cumulativeSpeedChart') {
+                chartOptions.scales.y.title.text = 'Mbps';
+            }
+            
+            const newChart = new Chart(ctx, { type: 'line', data: { labels: data.map(d => d[xKey]), datasets: datasets }, options: chartOptions });
+            
+            switch(canvasId) {
+                case 'rttChart': rttChartInstance = newChart; break;
+                case 'speedTestChart': speedChartInstance = newChart; break;
+                case 'cumulativeRttChart': cumulativeRttChartInstance = newChart; break;
+                case 'cumulativeSpeedChart': cumulativeSpeedChartInstance = newChart; break;
+            }
         }
         
         function applyTheme(isDark) { document.body.classList.toggle('dark-mode', isDark); fetchAndUpdateDashboard(profileSelector.value || null); }
-        document.addEventListener('click', (e) => { if (e.target?.classList.contains('agent-name')) { e.preventDefault(); const agentId = e.target.dataset.id; profileSelector.value = agentId; history.pushState({ agent_id: agentId }, '', `?isp_id=${agentId}`); fetchAndUpdateDashboard(agentId); }});
+        document.addEventListener('click', (e) => { if (e.target.closest('.agent-list-item')) { const agentId = e.target.closest('.agent-list-item').dataset.id; profileSelector.value = agentId; history.pushState({ agent_id: agentId }, '', `?isp_id=${agentId}`); fetchAndUpdateDashboard(agentId); }});
         profileSelector.addEventListener('change', (e) => { const agentId = e.target.value; const url = agentId ? `?isp_id=${agentId}` : './'; history.pushState({ agent_id: agentId }, '', url); fetchAndUpdateDashboard(agentId || null); });
         themeToggle.addEventListener('change', () => { localStorage.setItem('dark-mode', themeToggle.checked); applyTheme(themeToggle.checked); });
         window.addEventListener('popstate', (event) => { const agentId = event.state ? event.state.agent_id : new URLSearchParams(window.location.search).get('isp_id'); fetchAndUpdateDashboard(agentId); });
