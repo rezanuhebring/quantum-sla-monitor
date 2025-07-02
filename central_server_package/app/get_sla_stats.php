@@ -41,7 +41,6 @@ try {
     if (!file_exists($db_file)) { throw new Exception("Central database file not found."); }
     $db = new SQLite3($db_file, SQLITE3_OPEN_READONLY);
 
-    // Get all active ISP profiles for the dropdown menu
     $profiles_result = $db->query("SELECT id, agent_name, agent_identifier, agent_type, is_active, last_heard_from FROM isp_profiles WHERE is_active = 1 ORDER BY agent_type, agent_name");
     while ($profile = $profiles_result->fetchArray(SQLITE3_ASSOC)) { $response_data['isp_profiles'][] = $profile; }
 
@@ -53,6 +52,7 @@ try {
 
     if ($current_isp_profile_id) {
         // --- INDIVIDUAL AGENT VIEW ---
+        // (No changes needed in this block)
         $response_data['current_isp_profile_id'] = $current_isp_profile_id;
         $stmt_curr_prof = $db->prepare("SELECT agent_name FROM isp_profiles WHERE id = :id");
         $stmt_curr_prof->bindValue(':id', $current_isp_profile_id, SQLITE3_INTEGER);
@@ -74,9 +74,27 @@ try {
         $chart_query->close();
     } else {
         // --- OVERALL SUMMARY VIEW ---
+        // Get latest status for all active agents
         $all_status_query = $db->query("SELECT sm.*, ip.last_heard_from FROM sla_metrics sm INNER JOIN (SELECT isp_profile_id, MAX(id) as max_id FROM sla_metrics GROUP BY isp_profile_id) as latest ON sm.isp_profile_id = latest.isp_profile_id AND sm.id = latest.max_id JOIN isp_profiles ip ON sm.isp_profile_id = ip.id WHERE ip.is_active = 1");
-        while ($status = $all_status_query->fetchArray(SQLITE3_ASSOC)) { $response_data['all_agent_status'][$status['isp_profile_id']] = $status; }
+        while ($status = $all_status_query->fetchArray(SQLITE3_ASSOC)) { 
+            $response_data['all_agent_status'][$status['isp_profile_id']] = $status; 
+            // Initialize sparkline data array
+            $response_data['all_agent_status'][$status['isp_profile_id']]['sparkline_rtt'] = [];
+        }
         
+        // **NEW**: Get recent RTT data for sparklines (last 24 hours)
+        $sparkline_date = (new DateTime("-1 day", new DateTimeZone("UTC")))->format("Y-m-d\TH:i:s\Z");
+        $sparkline_query = $db->prepare("SELECT isp_profile_id, avg_rtt_ms FROM sla_metrics WHERE timestamp >= :start_date ORDER BY timestamp ASC");
+        $sparkline_query->bindValue(':start_date', $sparkline_date);
+        $sparkline_result = $sparkline_query->execute();
+        while($row = $sparkline_result->fetchArray(SQLITE3_ASSOC)) {
+            if (isset($response_data['all_agent_status'][$row['isp_profile_id']])) {
+                $response_data['all_agent_status'][$row['isp_profile_id']]['sparkline_rtt'][] = $row['avg_rtt_ms'];
+            }
+        }
+        $sparkline_query->close();
+
+        // (Cumulative chart queries remain the same)
         $cumulative_ping_stmt = $db->prepare("SELECT strftime('%Y-%m-%d', timestamp) as day, AVG(avg_rtt_ms) as avg_rtt, AVG(avg_loss_percent) as avg_loss, AVG(avg_jitter_ms) as avg_jitter FROM sla_metrics WHERE timestamp >= :start_date GROUP BY day ORDER BY day ASC");
         $cumulative_ping_stmt->bindValue(':start_date', $start_date_iso);
         $ping_res = $cumulative_ping_stmt->execute();
@@ -91,6 +109,7 @@ try {
     }
     
     // --- ADVANCED SLA CALCULATION ---
+    // (No changes needed in this block)
     $sla_filter = $current_isp_profile_id ? " AND sm.isp_profile_id = {$current_isp_profile_id}" : " AND ip.agent_type = 'ISP'";
     $agent_count_query = $current_isp_profile_id ? "1" : "SELECT COUNT(*) FROM isp_profiles WHERE agent_type = 'ISP' AND is_active=1";
     $num_agents_in_calc = (int)$db->querySingle($agent_count_query) ?: 1;
