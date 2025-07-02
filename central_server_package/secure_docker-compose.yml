@@ -4,15 +4,15 @@ version: '3.8'
 
 services:
   app:
-    # This refers to the existing Dockerfile. No need to change it.
+    # This refers to your existing Dockerfile. No changes are needed there.
     build:
       context: .
       dockerfile: Dockerfile
     container_name: sla_monitor_central_app
     restart: unless-stopped
-    # NOTE: No ports are exposed here. All traffic goes through Nginx.
+    # NOTE: No ports are exposed here. All traffic is securely routed through Nginx.
     volumes:
-      # These paths must match the paths created by your original setup script.
+      # These paths are the same as your original setup, ensuring data continuity.
       - /srv/sla_monitor/central_app_data/opt_sla_monitor:/opt/sla_monitor
       - /srv/sla_monitor/central_app_data/api_logs/sla_api.log:/var/log/sla_api.log
       - /srv/sla_monitor/central_app_data/apache_logs:/var/log/apache2
@@ -24,10 +24,11 @@ services:
     container_name: sla_monitor_proxy
     restart: unless-stopped
     ports:
+      # Nginx is the only service that listens to the outside world.
       - "80:80"
       - "443:443"
     volumes:
-      # These paths are created and managed by the secure_setup.sh script.
+      # These directories will be created and managed by the secure_setup.sh script.
       - /srv/sla_monitor/central_app_data/nginx:/etc/nginx/conf.d
       - /srv/sla_monitor/central_app_data/letsencrypt:/etc/letsencrypt
       - /srv/sla_monitor/central_app_data/certbot:/var/www/certbot
