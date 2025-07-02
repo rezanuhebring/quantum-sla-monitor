@@ -22,7 +22,7 @@ echo
 if [ "$(id -u)" -ne 0 ]; then print_error "This script must be run with sudo: sudo $0"; exit 1; fi
 
 # 1. Stop and remove the Docker containers defined in the secure compose file
-print_info "Stopping and removing Nginx and application containers..."
+print_info "Stopping and removing Nginx and application containers defined in ${SECURE_COMPOSE_FILE}..."
 if [ -f "${SECURE_COMPOSE_FILE}" ]; then
     # Use docker-compose down which handles containers and networks for this specific file
     sudo docker-compose -f "${SECURE_COMPOSE_FILE}" down --volumes
@@ -46,6 +46,20 @@ else
 fi
 echo
 
+# 3. Optionally uninstall Certbot
+print_warn "You can also uninstall Certbot from this system."
+print_warn "Only do this if you are not using it for other websites on this server."
+read -p "Would you like to UNINSTALL Certbot? [y/N]: " confirm_uninstall_certbot
+
+if [[ "$confirm_uninstall_certbot" =~ ^[Yy] ]]; then
+    print_info "Uninstalling Certbot package..."
+    sudo apt-get purge -y certbot
+    sudo apt-get autoremove -y
+    print_success "Certbot has been uninstalled."
+else
+    print_info "Skipping Certbot uninstallation."
+fi
+echo
+
 print_success "Secure proxy uninstallation finished."
-print_info "Your system is now ready to run the original, non-proxied application."
-print_info "You can start it by running: sudo docker-compose up -d"
+print_info "Your system is now clean and ready for another attempt, or to run the original, non-proxied application."
