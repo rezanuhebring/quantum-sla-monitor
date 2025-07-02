@@ -9,9 +9,9 @@ services:
     restart: unless-stopped
     ports:
       # CHANGED: The host port is now 8080, which maps to port 80 inside the container.
-      - "8080:80"
+      - "80:80"
       # CHANGED: The host port is now 8443, which maps to port 443 inside the container.
-      - "8443:443"
+      - "443:443"
     volumes:
       # These volume paths are correct and do not need to be changed.
       - /srv/sla_monitor/central_app_data/opt_sla_monitor:/opt/sla_monitor
