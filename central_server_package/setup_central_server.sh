@@ -118,9 +118,9 @@ services:
     container_name: sla_monitor_central_app
     restart: unless-stopped
     ports:
-      # *** FIXED: Use the 8080:80 and 8443:443 mapping as intended ***
+      # *** FIXED: Use the 8080:80 mapping as intended ***
       - "8080:80"
-      - "8443:443"
+      #- "8443:443"
     volumes:
       - \${HOST_OPT_SLA_MONITOR_DIR}:/opt/sla_monitor
       - \${HOST_API_LOGS_DIR}/sla_api.log:/var/log/sla_api.log
