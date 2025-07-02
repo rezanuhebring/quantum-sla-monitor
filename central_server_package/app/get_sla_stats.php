@@ -1,18 +1,19 @@
 <?php
 // get_sla_stats.php - FINAL PRODUCTION VERSION
-// This version ensures the 'periods' SLA data is calculated for both summary and detail views.
+// Enhanced to provide a summary of all agent statuses and detailed data in one call.
+// System-wide SLA is now calculated for ISP-only agents.
 
-ini_set('display_errors', 0);
+ini_set('display_errors', 0); // Never display errors on a JSON endpoint
 ini_set('log_errors', 1);
 
 // --- Configuration ---
 $db_file = '/opt/sla_monitor/central_sla_data.sqlite';
 $config_file_path_central = '/opt/sla_monitor/sla_config.env';
-$EXPECTED_INTERVAL_MINUTES = 15;
+$EXPECTED_INTERVAL_MINUTES = 15; // How often do you expect agents to check in?
 
 // --- Helper Function ---
 function parse_env_file($filepath) {
-    $env_vars = []; if (!file_exists($filepath)) return $env_vars;
+    $env_vars = []; if (!file_exists($filepath) || !is_readable($filepath)) return $env_vars;
     $lines = file($filepath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
     foreach ($lines as $line) {
         if (empty(trim($line)) || strpos(trim($line), '#') === 0) continue;
@@ -40,12 +41,15 @@ try {
     if (!file_exists($db_file)) { throw new Exception("Central database file not found."); }
     $db = new SQLite3($db_file, SQLITE3_OPEN_READONLY);
 
+    // Get all active ISP profiles for the dropdown menu
     $profiles_result = $db->query("SELECT id, agent_name, agent_identifier, agent_type, is_active, last_heard_from FROM isp_profiles WHERE is_active = 1 ORDER BY agent_type, agent_name");
     while ($profile = $profiles_result->fetchArray(SQLITE3_ASSOC)) { $response_data['isp_profiles'][] = $profile; }
 
     $current_isp_profile_id = filter_input(INPUT_GET, 'isp_id', FILTER_VALIDATE_INT);
     $period_days = filter_input(INPUT_GET, 'period', FILTER_VALIDATE_INT) ?: 1;
-    $start_date_iso = (new DateTime("-{$period_days} days", new DateTimeZone("UTC")))->format("Y-m-d\TH:i:s\Z");
+
+    $start_date_obj = new DateTime("-{$period_days} days", new DateTimeZone("UTC"));
+    $start_date_iso = $start_date_obj->format("Y-m-d\TH:i:s\Z");
 
     if ($current_isp_profile_id) {
         // --- INDIVIDUAL AGENT VIEW ---
@@ -77,34 +81,31 @@ try {
         $cumulative_ping_stmt->bindValue(':start_date', $start_date_iso);
         $ping_res = $cumulative_ping_stmt->execute();
         while($row = $ping_res->fetchArray(SQLITE3_ASSOC)) { $response_data['cumulative_ping_chart_data'][] = $row; }
+        $cumulative_ping_stmt->close();
 
         $cumulative_speed_stmt = $db->prepare("SELECT strftime('%Y-%m-%d', timestamp) as day, AVG(speedtest_download_mbps) as avg_dl, AVG(speedtest_upload_mbps) as avg_ul FROM sla_metrics WHERE speedtest_status = 'COMPLETED' AND timestamp >= :start_date GROUP BY day ORDER BY day ASC");
         $cumulative_speed_stmt->bindValue(':start_date', $start_date_iso);
         $speed_res = $cumulative_speed_stmt->execute();
         while($row = $speed_res->fetchArray(SQLITE3_ASSOC)) { $response_data['cumulative_speed_chart_data'][] = $row; }
+        $cumulative_speed_stmt->close();
     }
     
-    // *** FIX: THIS SECTION NOW RUNS FOR BOTH SUMMARY AND DETAIL VIEWS ***
-    $period_defs = [
-        '1' => 'Last 24 Hours',
-        '7' => 'Last 7 Days',
-        '30' => 'Last 30 Days',
-        '365' => 'Last Year'
-    ];
+    // --- ADVANCED SLA CALCULATION ---
     $sla_filter = $current_isp_profile_id ? " AND sm.isp_profile_id = {$current_isp_profile_id}" : " AND ip.agent_type = 'ISP'";
     $agent_count_query = $current_isp_profile_id ? "1" : "SELECT COUNT(*) FROM isp_profiles WHERE agent_type = 'ISP' AND is_active=1";
     $num_agents_in_calc = (int)$db->querySingle($agent_count_query) ?: 1;
 
-    foreach ($period_defs as $days => $label) {
-        $start_date = (new DateTime("-{$days} days", new DateTimeZone("UTC")))->format("Y-m-d\TH:i:s\Z");
-        $total_possible = floor(($days * 1440) / $EXPECTED_INTERVAL_MINUTES) * $num_agents_in_calc;
+    foreach (['1' => 'Last 24 Hours', '7' => 'Last 7 Days', '30' => 'Last 30 Days', '365' => 'Last Year'] as $days => $label) {
+        if ($days > $period_days && !$current_isp_profile_id) continue;
+        if ($days != $period_days && $current_isp_profile_id) continue;
         
+        $total_possible = floor(($days * 1440) / $EXPECTED_INTERVAL_MINUTES) * $num_agents_in_calc;
         $stmt = $db->prepare("SELECT SUM(sla_met_interval) FROM sla_metrics sm JOIN isp_profiles ip ON sm.isp_profile_id = ip.id WHERE sm.timestamp >= :start_date" . $sla_filter);
-        $stmt->bindValue(':start_date', $start_date);
+        $stmt->bindValue(':start_date', (new DateTime("-{$days} days", new DateTimeZone("UTC")))->format("Y-m-d\TH:i:s\Z"));
         $met_intervals = (int)$stmt->execute()->fetchArray(SQLITE3_NUM)[0];
         
         $achieved = ($total_possible > 0) ? round(($met_intervals / $total_possible) * 100, 2) : 0.0;
-        $response_data['periods'][$days] = ['label' => $label, 'total_intervals' => $total_possible, 'met_intervals' => $met_intervals, 'achieved_percentage' => $achieved, 'is_target_met' => ($achieved >= $response_data['target_sla_percentage'])];
+        $response_data['periods'][] = ['label' => $label, 'achieved_percentage' => $achieved, 'is_target_met' => ($achieved >= $response_data['target_sla_percentage'])];
     }
     
     $db->close();

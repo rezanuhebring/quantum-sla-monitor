@@ -7,168 +7,213 @@
     <style>
         :root { --bg-color: #f0f2f5; --card-bg: #ffffff; --text-color: #333; --header-color: #1a237e; --border-color: #e0e0e0; --link-color: #007bff; --shadow-color: rgba(0,0,0,0.1); --green: #28a745; --red: #dc3545; --orange: #fd7e14; --grey: #6c757d;}
         .dark-mode { --bg-color: #121212; --card-bg: #1e1e1e; --text-color: #e0e0e0; --header-color: #bb86fc; --border-color: #444; --link-color: #bb86fc; --shadow-color: rgba(0,0,0,0.4); }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background-color: var(--bg-color); color: var(--text-color); transition: background-color 0.3s, color 0.3s; }
-        .dashboard-container { max-width: 1400px; margin: 0 auto; background-color: var(--card-bg); padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px var(--shadow-color); transition: background-color 0.3s; }
-        h1, h2 { color: var(--header-color); text-align: center; }
-        h1 { font-size: 2em; } h2 { font-size: 1.5em; margin-top: 30px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background-color: var(--bg-color); color: var(--text-color); }
+        .dashboard-container { max-width: 1400px; margin: 0 auto; background-color: var(--card-bg); padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px var(--shadow-color); }
+        h1 { font-size: 2em; margin: 0; } h2 { font-size: 1.5em; margin-top: 30px; margin-bottom: 20px; text-align: left; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;}
         .top-bar { display: flex; justify-content: space-between; align-items: center; }
         .top-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--border-color); flex-wrap: wrap; gap: 15px; }
-        .isp-selector-container label { margin-right: 8px; font-weight: 500; }
-        .isp-selector-container select { padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-color); font-size: 1em; min-width: 300px; background-color: var(--card-bg); color: var(--text-color); }
+        .selector-group { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+        .selector-group label { font-weight: 500; }
+        .selector-group select, .time-period-selector button { padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-color); font-size: 1em; background-color: var(--card-bg); color: var(--text-color); cursor: pointer; }
+        .selector-group select { flex-grow: 1; min-width: 250px; }
+        .time-period-selector button.active { background-color: var(--link-color); color: white; border-color: var(--link-color); }
         .timestamp { font-size: 0.9em; }
         .theme-switcher { display: flex; align-items: center; cursor: pointer; } .theme-switcher-label { margin-right: 8px; font-weight: 500;}
         .switch { position: relative; display: inline-block; width: 44px; height: 24px; } .switch input { opacity: 0; width: 0; height: 0; }
         .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 24px; }
         .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
         input:checked + .slider { background-color: #6200ea; } input:checked + .slider:before { transform: translateX(20px); }
-        .download-button-container { text-align: center; margin-bottom: 20px; } 
-        .download-button { display: inline-block; padding: 10px 20px; font-size: 1em; font-weight: bold; color: #fff; background-color: var(--link-color); border: none; border-radius: 5px; text-decoration: none; cursor: pointer; transition: background-color 0.2s; } 
-        .download-button:hover { background-color: #0056b3; }
-        .dark-mode .download-button:hover { background-color: #985eff; }
-        .agent-lists-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 30px; }
+        .download-button-container { text-align: center; margin: 20px 0; } 
+        .download-button { display: inline-block; padding: 10px 20px; font-size: 1em; font-weight: bold; color: #fff; background-color: var(--link-color); border: none; border-radius: 5px; text-decoration: none; cursor: pointer; }
+        .agent-lists-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         .agent-list { list-style-type: none; padding: 0; }
-        .agent-list-item { background-color: var(--bg-color); margin-bottom: 10px; padding: 15px; border-radius: 6px; border-left: 5px solid var(--grey); transition: transform 0.2s, box-shadow 0.2s; cursor: pointer; }
+        .agent-list-item { background-color: var(--bg-color); margin-bottom: 10px; padding: 15px; border-radius: 6px; border-left: 5px solid var(--grey); cursor: pointer; transition: transform 0.2s; }
+        .agent-list-item:hover { transform: translateY(-2px); }
         .agent-list-item.status-up { border-left-color: var(--green); } .agent-list-item.status-down { border-left-color: var(--red); } .agent-list-item.status-stale { border-left-color: var(--orange); }
-        .agent-list-item:hover { transform: translateY(-2px); box-shadow: 0 6px 15px var(--shadow-color); }
-        .agent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .agent-name { font-weight: bold; font-size: 1.1em; color: var(--link-color); text-decoration: none; }
+        .agent-header { display: flex; justify-content: space-between; align-items: center; }
+        .agent-name { font-weight: bold; font-size: 1.1em; color: var(--link-color); }
         .status-dot { height: 12px; width: 12px; background-color: var(--grey); border-radius: 50%; display: inline-block; }
         .status-dot.up { background-color: var(--green); } .status-dot.down { background-color: var(--red); } .status-dot.stale { background-color: var(--orange); }
-        .agent-metrics { font-size: 0.9em; display: flex; justify-content: space-between; flex-wrap: wrap; } /* This is the correct class */
-        .agent-metrics span { margin-right: 15px; opacity: 0.9; }
+        .agent-metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 15px; font-size: 0.9em; padding-top: 8px; opacity: 0.9; } /* Grid for metrics */
         .hidden { display: none !important; }
-        .loader { border: 5px solid #444; border-top: 5px solid #bb86fc; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 50px auto; }
+        .loader { border: 5px solid var(--border-color); border-top: 5px solid var(--link-color); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 50px auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; }
-        .metric-card { background-color: var(--bg-color); padding: 20px; border-radius: 8px; border: 1px solid var(--border-color); }
-        .metric-card h3 { margin-top: 0; color: var(--header-color); border-bottom: 1px solid var(--border-color); padding-bottom: 10px; font-size: 1.2em; }
-        .metric-card p { margin: 10px 0; font-size: 1em; line-height: 1.5; display: flex; justify-content: space-between; } .metric-card strong { font-weight: 600; }
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+        .card { background-color: var(--bg-color); padding: 20px; border-radius: 8px; }
+        .card h3 { margin-top: 0; padding-bottom: 10px; font-size: 1.2em; border-bottom: 1px solid var(--border-color); }
+        .card p { margin: 10px 0; font-size: 1em; display: flex; justify-content: space-between; } .card strong { font-weight: 600; }
         .chart-card { grid-column: 1 / -1; }
-        .chart-container { width: 100%; height: 320px; margin-top: 20px; }
-        .sla-period-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed var(--border-color); }
-        .sla-period-item:last-child { border-bottom: none; }
-        .sla-period-label { font-weight: 500; } .sla-percentage { font-weight: bold; font-size: 1.2em; }
+        .chart-container { width: 100%; height: 350px; }
+        .sla-period-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed var(--border-color); } .sla-period-item:last-child { border-bottom: none; }
         .sla-percentage.met { color: var(--green); } .sla-percentage.not-met { color: var(--red); }
-        .sla-details { font-size: 0.9em; opacity: 0.7; }
+        @media (max-width: 800px) { h1 {font-size: 1.5em;} .top-info, .top-bar { flex-direction: column; align-items: stretch; text-align: center; } .selector-group { justify-content: center;} .agent-lists-container {grid-template-columns: 1fr;} }
     </style>
 </head>
 <body>
     <div class="dashboard-container">
         <div class="top-bar"><h1>Internet Performance Monitor</h1><div class="theme-switcher"><span class="theme-switcher-label">Dark Mode</span><label class="switch"><input type="checkbox" id="theme-toggle"><span class="slider"></span></label></div></div>
-        <div class="top-info"><div class="isp-selector-container"><label for="isp-profile-selector">View Dashboard:</label><select id="isp-profile-selector"><option value="">-- Show All Agents Summary --</option></select></div><div id="last-checked" class="timestamp">Last Update: Loading...</div></div>
+        <div class="top-info"><div class="selector-group"><label for="isp-profile-selector">View:</label><select id="isp-profile-selector"><option value="">-- Overall Summary --</option></select></div><div class="selector-group"><label>Period:</label><div class="time-period-selector"><button data-period="1" class="active">24h</button><button data-period="7">7d</button><button data-period="30">30d</button><button data-period="365">1y</button></div></div></div>
         <div id="loader" class="loader"></div>
         <div id="dashboard-content" class="hidden">
-            <div id="summary-view"><h2>System-Wide Health Summary</h2><div class="grid-container"><div class="metric-card"><h3>System-Wide ISP SLA (Target: <span id="summary-sla-target">99.5</span>%)</h3><div id="overall-sla-periods"></div></div></div><div class="agent-lists-container" style="margin-top: 20px;"><div class="metric-card"><h3>Active ISP Agents</h3><ul id="isp-agent-list" class="agent-list"></ul></div><div class="metric-card"><h3>Active Client Agents</h3><ul id="client-agent-list" class="agent-list"></ul></div></div><div class="chart-card card" style="margin-top:20px;"><h3>System-Wide Daily Averages (<span class="period-label"></span>)</h3><div class="chart-container"><canvas id="cumulativeRttChart"></canvas></div><div class="chart-container" style="margin-top:20px;"><canvas id="cumulativeSpeedChart"></canvas></div></div></div>
-            <div id="detail-view" class="hidden"><h2 id="agent-name-header"></h2><div class="download-button-container"><a id="individual-csv-download" href="#" class="download-button"><span role="img" aria-label="floppy disk">💾</span> Download Agent Data (CSV)</a></div><div class="grid-container"><div class="metric-card"><h3><span role="img" aria-label="signal">📶</span> Ping & Connectivity</h3><p><span>Overall Status:</span> <strong id="ping-status">N/A</strong></p><p><span>Average RTT:</span> <strong id="ping-rtt">N/A</strong></p><p><span>Average Loss:</span> <strong id="ping-loss">N/A</strong></p><p><span>Average Jitter:</span> <strong id="ping-jitter">N/A</strong></p></div><div class="metric-card"><h3><span role="img" aria-label="gauge">💨</span> Speed Test</h3><p><span>Status:</span> <strong id="speed-status">N/A</strong></p><p><span>Download:</span> <strong id="speed-dl">N/A</strong></p><p><span>Upload:</span> <strong id="speed-ul">N/A</strong></p><p><span>Ping (Speedtest):</span> <strong id="speed-ping">N/A</strong></p></div><div class="metric-card"><h3><span role="img" aria-label="target">🎯</span> Service Level Agreement</h3><div id="historical-sla-data"></div></div></div><div class="grid-container" style="margin-top: 20px;"><div class="metric-card"><h3>RTT, Jitter & Loss (%)</h3><div class="chart-container"><canvas id="rttChart"></canvas></div></div><div class="metric-card"><h3>Download & Upload Speed (Mbps)</h3><div class="chart-container"><canvas id="speedTestChart"></canvas></div></div></div></div>
+            <div id="summary-view" class="hidden">
+                <h2>System-Wide Health Summary</h2>
+                <div class="grid-container"><div class="card"><h3>System-Wide ISP SLA</h3><div id="overall-sla-periods"></div><div class="download-button-container"><a id="summary-csv-download" href="generate_csv.php" download="all_agents_summary.csv" class="download-button">💾 Download All Agent Status</a></div></div></div>
+                <div class="agent-lists-container" style="margin-top: 20px;"><div class="card"><h3>Active ISP Agents</h3><ul id="isp-agent-list" class="agent-list"></ul></div><div class="card"><h3>Active Client Agents</h3><ul id="client-agent-list" class="agent-list"></ul></div></div>
+                <div class="chart-card card" style="margin-top:20px;"><h3>System-Wide Daily Averages (<span class="period-label"></span>)</h3><div class="chart-container"><canvas id="cumulativeRttChart"></canvas></div><div class="chart-container" style="margin-top:20px;"><canvas id="cumulativeSpeedChart"></canvas></div></div>
+            </div>
+            <div id="detail-view" class="hidden">
+                <h2 id="agent-name-header"></h2><div class="download-button-container"><a id="individual-csv-download" href="#" class="download-button">💾 Download Agent Data (CSV)</a></div>
+                <div class="grid-container"><div class="card"><h3>Live Status</h3><p><span>Last Check:</span><strong id="last-checked"></strong></p><p><span>Connectivity:</span><strong id="ping-status"></strong></p><p><span>RTT:</span><strong id="ping-rtt"></strong></p><p><span>Loss:</span><strong id="ping-loss"></strong></p><p><span>Jitter:</span><strong id="ping-jitter"></strong></p></div><div class="card"><h3>Speedtest</h3><p><span>Download:</span><strong id="speed-dl"></strong></p><p><span>Upload:</span><strong id="speed-ul"></strong></p><p><span>Ping (ISP):</span><strong id="speed-ping"></strong></p></div><div class="card"><h3>Service Level Agreement (<span class="period-label"></span>)</h3><div id="historical-sla-data"></div></div></div>
+                <div class="chart-card card" style="margin-top:20px;"><h3>Historical Performance (<span class="period-label"></span>)</h3><div class="chart-container"><canvas id="rttChart"></canvas></div><div class="chart-container" style="margin-top:20px;"><canvas id="speedTestChart"></canvas></div></div>
+            </div>
         </div>
     </div>
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const API_URL = 'get_sla_stats.php';
-            let chartInstances = {}; let refreshIntervalTimer; let currentPeriodDays = "1";
-            const loader = document.getElementById('loader'); const profileSelector = document.getElementById('isp-profile-selector'); const dashboardContent = document.getElementById('dashboard-content'); const summaryView = document.getElementById('summary-view'); const detailView = document.getElementById('detail-view'); const periodSelector = document.querySelector('.time-period-selector'); const themeToggle = document.getElementById('theme-toggle');
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    let chartInstances = {};
+    let refreshIntervalTimer;
+    let currentPeriodDays = "1";
 
-            const setText = (id, value, unit = '') => { const el = document.getElementById(id); if (el) el.textContent = (value !== null && value !== undefined && String(value).trim() !== '') ? `${String(value)}${unit}` : 'N/A'; };
+    const loader = document.getElementById('loader');
+    const profileSelector = document.getElementById('isp-profile-selector');
+    const dashboardContent = document.getElementById('dashboard-content');
+    const summaryView = document.getElementById('summary-view');
+    const detailView = document.getElementById('detail-view');
+    const periodSelector = document.querySelector('.time-period-selector');
+    const themeToggle = document.getElementById('theme-toggle');
+
+    const setText = (id, value, unit = '') => { const el = document.getElementById(id); if (el) el.textContent = (value !== null && value !== undefined && String(value).trim() !== '') ? `${String(value).trim()}${unit}` : 'N/A'; };
+
+    const fetchAndUpdateDashboard = async (agentId = null, period = currentPeriodDays) => {
+        currentPeriodDays = period;
+        loader.style.display = 'block';
+        dashboardContent.classList.add('hidden');
+        let url = `get_sla_stats.php?period=${period}&_=${new Date().getTime()}`;
+        if (agentId) url += `&isp_id=${agentId}`;
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            if (data.error) throw new Error(data.message);
+
+            if (!profileSelector.getAttribute('data-populated')) updateProfileSelector(data.isp_profiles, agentId);
+
+            document.querySelectorAll('.time-period-selector button').forEach(b => b.classList.toggle('active', b.dataset.period === period));
+            document.querySelectorAll('.period-label').forEach(el => el.textContent = `${period} day(s)`);
+
+            if (agentId) renderDetailView(data);
+            else renderSummaryView(data);
             
-            async function fetchAndUpdateDashboard(agentId = null, period = currentPeriodDays) {
-                currentPeriodDays = period; loader.style.display = 'block'; dashboardContent.classList.add('hidden');
-                let url = `${API_URL}?period=${period}&_=${new Date().getTime()}`; if (agentId) url += `&isp_id=${agentId}`;
-                try {
-                    const response = await fetch(url); if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    const data = await response.json(); if (data.error) throw new Error(data.message);
-                    if (!profileSelector.getAttribute('data-populated')) updateProfileSelector(data.isp_profiles, agentId);
-                    document.querySelectorAll('.time-period-selector button').forEach(b => b.classList.toggle('active', b.dataset.period === period));
-                    if (agentId) renderDetailView(data); else renderSummaryView(data);
-                    dashboardContent.classList.remove('hidden');
-                    if (refreshIntervalTimer) clearInterval(refreshIntervalTimer);
-                    refreshIntervalTimer = setInterval(() => fetchAndUpdateDashboard(profileSelector.value, currentPeriodDays), data.dashboard_refresh_interval_ms || 900000);
-                } catch (error) { console.error("Dashboard Error:", error); dashboardContent.innerHTML = `<h2 style="color:var(--red)">Error</h2><p>${error.message}</p>`;
-                } finally { loader.style.display = 'none'; }
-            }
+            dashboardContent.classList.remove('hidden');
 
-            const updateProfileSelector = (profiles, selectedId) => {
-                profileSelector.innerHTML = '<option value="">-- Show All Agents Summary --</option>';
-                (profiles || []).forEach(p => { const o = document.createElement('option'); o.value = p.id; o.textContent = `${p.agent_name} (${p.agent_identifier})`; profileSelector.appendChild(o); });
-                profileSelector.value = selectedId || ""; profileSelector.setAttribute('data-populated', 'true');
-            };
+            if (refreshIntervalTimer) clearInterval(refreshIntervalTimer);
+            refreshIntervalTimer = setInterval(() => fetchAndUpdateDashboard(profileSelector.value, currentPeriodDays), data.dashboard_refresh_interval_ms || 900000);
+        } catch (error) {
+            console.error("Dashboard Error:", error);
+            dashboardContent.innerHTML = `<h2 style="color:var(--red)">Error</h2><p>${error.message}</p>`;
+        } finally {
+            loader.style.display = 'none';
+        }
+    };
 
-            // *** THIS IS THE CORRECTED AND ENHANCED FUNCTION ***
-            const renderSummaryView = (data) => {
-                document.title = "Overall SLA Monitor";
-                setText('last-checked', `Last Update: ${new Date().toLocaleString()}`);
-                const slaContainer = document.getElementById('overall-sla-periods'); slaContainer.innerHTML = '';
-                (Object.values(data.periods) || []).forEach(p => { slaContainer.innerHTML += `<div class="sla-period-item"><span>${p.label}:</span> <span class="sla-percentage ${p.is_target_met ? 'met' : 'not-met'}">${p.achieved_percentage}%</span></div>`; });
-                
-                const lists = { ISP: document.getElementById('isp-agent-list'), Client: document.getElementById('client-agent-list') };
-                Object.values(lists).forEach(l => l.innerHTML = '');
-                (data.isp_profiles || []).forEach(p => {
-                    const status = data.all_agent_status[p.id];
-                    const lastHeard = status ? new Date(status.timestamp) : (p.last_heard_from ? new Date(p.last_heard_from) : null);
-                    const minutesSinceHeard = lastHeard ? (new Date() - lastHeard) / 60000 : Infinity;
-                    let statusClass = 'unknown';
-                    if (status) statusClass = status.overall_connectivity?.toLowerCase() || 'unknown';
-                    if (minutesSinceHeard > data.agent_stale_minutes) statusClass = 'stale';
-
-                    const rtt = status?.avg_rtt_ms !== null ? `${parseFloat(status.avg_rtt_ms).toFixed(2)}ms` : 'N/A';
-                    const loss = status?.avg_loss_percent !== null ? `${parseFloat(status.avg_loss_percent).toFixed(1)}%` : 'N/A';
-                    const lastCheck = lastHeard ? lastHeard.toLocaleString() : 'Never';
-
-                    const li = document.createElement('li'); li.className = `agent-list-item status-${statusClass}`; li.dataset.id = p.id;
-                    li.innerHTML = `<div class="agent-header"><span class="agent-name">${p.agent_name}</span><span class="status-dot ${statusClass}" title="${statusClass.toUpperCase()}"></span></div><div class="agent-metrics"><span>RTT: <strong>${rtt}</strong></span><span>Loss: <strong>${loss}</strong></span><span style="font-size:0.8em; opacity:0.7;">${lastCheck}</span></div>`;
-                    if (lists[p.agent_type]) lists[p.agent_type].appendChild(li);
-                });
-                if (lists.ISP.children.length === 0) lists.ISP.innerHTML = '<li>No active ISP agents.</li>';
-                if (lists.Client.children.length === 0) lists.Client.innerHTML = '<li>No active Client agents.</li>';
-
-                renderChart('cumulativeRttChart', { 'Avg RTT': 'avg_rtt', 'Avg Loss': 'avg_loss'}, data.cumulative_ping_chart_data, 'day');
-                renderChart('cumulativeSpeedChart', { 'Avg Download': 'avg_dl', 'Avg Upload': 'avg_ul'}, data.cumulative_speed_chart_data, 'day');
-                summaryView.classList.remove('hidden'); detailView.classList.add('hidden');
-            };
-
-            const renderDetailView = (data) => {
-                document.title = `${data.current_isp_name} - SLA Monitor`;
-                setText('agent-name-header', data.current_isp_name);
-                const latest = data.latest_check;
-                setText('last-checked', latest ? new Date(latest.timestamp).toLocaleString() : 'N/A');
-                setText('ping-status', latest?.overall_connectivity); setText('ping-rtt', latest?.avg_rtt_ms, ' ms'); setText('ping-loss', latest?.avg_loss_percent, ' %'); setText('ping-jitter', latest?.avg_jitter_ms, ' ms');
-                setText('speed-dl', latest?.speedtest_download_mbps, ' Mbps'); setText('speed-ul', latest?.speedtest_upload_mbps, ' Mbps');setText('speed-ping', latest?.speedtest_ping_ms, ' ms');
-
-                const slaContainer = document.getElementById('historical-sla-data'); slaContainer.innerHTML = `<h3>SLA (Target: ${data.target_sla_percentage}%)</h3>`;
-                (Object.values(data.periods) || []).forEach(p => { slaContainer.innerHTML += `<div class="sla-period-item"><span class="sla-period-label">${p.label}:</span><span class="sla-percentage ${p.is_target_met ? 'met' : 'not-met'}">${p.achieved_percentage}%</span><span class="sla-details">(${p.met_intervals} of ${p.total_intervals} total possible)</span></div>`; });
-                
-                document.getElementById('individual-csv-download').href = `generate_csv.php?isp_id=${data.current_isp_profile_id}`;
-                
-                renderChart('rttChart', { 'Avg RTT (ms)': 'avg_rtt_ms', 'Avg Jitter (ms)': 'avg_jitter_ms', 'Packet Loss (%)': 'avg_loss_percent'}, data.rtt_chart_data, 'timestamp');
-                renderChart('speedTestChart', { 'Download (Mbps)': 'speedtest_download_mbps', 'Upload (Mbps)': 'speedtest_upload_mbps'}, data.speed_chart_data, 'timestamp');
-                summaryView.classList.add('hidden'); detailView.classList.remove('hidden');
-            };
-
-            const renderChart = (canvasId, seriesConfig, data, xKey) => {
-                const ctx = document.getElementById(canvasId)?.getContext('2d'); if (!ctx) return;
-                if (chartInstances[canvasId]) chartInstances[canvasId].destroy();
-                const isDark = document.body.classList.contains('dark-mode'); const colors = ['#36a2eb', '#ff6384', '#ff9f40', '#4bc0c0'];
-                const datasets = Object.entries(seriesConfig).map(([label, key], index) => ({
-                    label, data: data.map(d => d[key]), borderColor: colors[index], backgroundColor: colors[index]+'33', type: label.includes('Loss') ? 'bar' : 'line',
-                    tension: 0.3, fill: true, yAxisID: label.includes('Loss') ? 'y1' : (label.includes('Jitter') ? 'y2' : 'y')
-                }));
-                const chartOptions = { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { x: { type: 'time', time: { unit: 'day', tooltipFormat: 'PPp' } }, y: { beginAtZero: true } }, plugins: { legend: { labels: {} } } };
-                if (canvasId.includes('rtt')) {
-                     chartOptions.scales.y1 = { type: 'linear', position: 'right', max: 100, display: true, grid: { drawOnChartArea: false } };
-                     chartOptions.scales.y2 = { type: 'linear', position: 'right', display: true, grid: { drawOnChartArea: false } };
-                }
-                chartInstances[canvasId] = new Chart(ctx, { type: 'line', data: { labels: data.map(d => d[xKey]), datasets }, options: chartOptions });
-            };
-            
-            const applyTheme = (isDark) => { document.body.classList.toggle('dark-mode', isDark); fetchAndUpdateDashboard(profileSelector.value, currentPeriodDays); };
-            
-            document.body.addEventListener('click', e => { const listItem = e.target.closest('.agent-list-item'); if(listItem) { const agentId = listItem.dataset.id; profileSelector.value = agentId; history.pushState({agentId}, '', `?isp_id=${agentId}`); fetchAndUpdateDashboard(agentId, currentPeriodDays); }});
-            profileSelector.addEventListener('change', e => { const agentId = e.target.value; const url = agentId ? `?isp_id=${agentId}` : './'; history.pushState({agentId}, '', url); fetchAndUpdateDashboard(agentId, currentPeriodDays); });
-            periodSelector.addEventListener('click', e => { if(e.target.tagName === 'BUTTON'){ currentPeriodDays = e.target.dataset.period; fetchAndUpdateDashboard(profileSelector.value, currentPeriodDays); }});
-            themeToggle.addEventListener('change', () => { localStorage.setItem('dark-mode', themeToggle.checked); applyTheme(themeToggle.checked); });
-            
-            applyTheme(localStorage.getItem('dark-mode') === 'true');
-            fetchAndUpdateDashboard(new URLSearchParams(window.location.search).get('isp_id'), currentPeriodDays);
+    const updateProfileSelector = (profiles, selectedId) => {
+        profileSelector.innerHTML = '<option value="">-- Overall Summary --</option>';
+        (profiles || []).forEach(p => {
+            const option = document.createElement('option');
+            option.value = p.id;
+            option.textContent = `${p.agent_name} (${p.agent_identifier}) ${p.is_active ? '' : '(Inactive)'}`;
+            profileSelector.appendChild(option);
         });
-    </script>
+        profileSelector.value = selectedId || "";
+        profileSelector.setAttribute('data-populated', 'true');
+    };
+
+    const renderSummaryView = (data) => {
+        document.title = "Overall SLA Monitor";
+        const slaContainer = document.getElementById('overall-sla-periods');
+        slaContainer.innerHTML = '';
+        (Object.values(data.periods) || []).forEach(p => { slaContainer.innerHTML += `<div class="sla-period-item"><span>${p.label}:</span> <span class="sla-percentage ${p.is_target_met ? 'met' : 'not-met'}">${p.achieved_percentage}%</span></div>`; });
+        
+        const lists = { ISP: document.getElementById('isp-agent-list'), Client: document.getElementById('client-agent-list') };
+        Object.values(lists).forEach(l => l.innerHTML = '');
+        let counts = { ISP: 0, Client: 0 };
+        (data.isp_profiles || []).forEach(p => {
+            const status = data.all_agent_status[p.id];
+            const lastHeard = status ? new Date(status.timestamp) : (p.last_heard_from ? new Date(p.last_heard_from) : null);
+            const minutesSinceHeard = lastHeard ? (new Date() - lastHeard) / 60000 : Infinity;
+            let statusClass = status ? (status.overall_connectivity?.toLowerCase() || 'unknown') : 'unknown';
+            if (minutesSinceHeard > data.agent_stale_minutes) statusClass = 'stale';
+
+            // *** FIX: Added this block to get all the necessary data points ***
+            const connectivityText = statusClass.toUpperCase().replace('_', ' ');
+            const rttText = (status?.avg_rtt_ms !== null && status?.avg_rtt_ms !== undefined) ? `${parseFloat(status.avg_rtt_ms).toFixed(2)}ms` : 'N/A';
+            const lossText = (status?.avg_loss_percent !== null && status?.avg_loss_percent !== undefined) ? `${parseFloat(status.avg_loss_percent).toFixed(1)}%` : 'N/A';
+            const lastCheckText = lastHeard ? lastHeard.toLocaleString() : 'Never';
+
+            const li = document.createElement('li');
+            li.className = `agent-list-item status-${statusClass}`; li.dataset.id = p.id;
+            // *** FIX: This innerHTML now includes the new metrics grid ***
+            li.innerHTML = `
+                <div class="agent-header"><span class="agent-name">${p.agent_name}</span><span class="status-dot ${statusClass}" title="${connectivityText}"></span></div>
+                <div class="agent-metrics-grid">
+                    <span>Status:</span> <strong>${connectivityText}</strong>
+                    <span>RTT:</span> <strong>${rttText}</strong>
+                    <span>Loss:</span> <strong>${lossText}</strong>
+                    <span>Last Check:</span> <strong style="font-size:0.9em;">${lastCheckText}</strong>
+                </div>`;
+            if (lists[p.agent_type]) { lists[p.agent_type].appendChild(li); counts[p.agent_type]++; }
+        });
+        if (counts.ISP === 0) lists.ISP.innerHTML = '<li>No active ISP agents.</li>';
+        if (counts.Client === 0) lists.Client.innerHTML = '<li>No active Client agents.</li>';
+
+        renderChart('cumulativeRttChart', { 'Avg RTT (ms)': 'avg_rtt', 'Avg Loss (%)': 'avg_loss', 'Avg Jitter (ms)': 'avg_jitter' }, data.cumulative_ping_chart_data, 'day');
+        renderChart('cumulativeSpeedChart', { 'Avg Download (Mbps)': 'avg_dl', 'Avg Upload (Mbps)': 'avg_ul' }, data.cumulative_speed_chart_data, 'day');
+        summaryView.classList.remove('hidden');
+        detailView.classList.add('hidden');
+    };
+    
+    const renderDetailView = (data) => {
+        document.title = `${data.current_isp_name} - SLA Monitor`;
+        setText('agent-name-header', data.current_isp_name);
+        const latest = data.latest_check;
+        setText('last-checked', latest ? new Date(latest.timestamp).toLocaleString() : 'N/A');
+        setText('ping-status', latest?.overall_connectivity); setText('ping-rtt', latest?.avg_rtt_ms, ' ms'); setText('ping-loss', latest?.avg_loss_percent, ' %'); setText('ping-jitter', latest?.avg_jitter_ms, ' ms');
+        setText('speed-dl', latest?.speedtest_download_mbps, ' Mbps'); setText('speed-ul', latest?.speedtest_upload_mbps, ' Mbps');setText('speed-ping', latest?.speedtest_ping_ms, ' ms');
+
+        const slaContainer = document.getElementById('historical-sla-data'); slaContainer.innerHTML = `<h3>SLA (Target: ${data.target_sla_percentage}%)</h3>`;
+        (Object.values(data.periods) || []).forEach(p => { slaContainer.innerHTML += `<div class="sla-period-item"><span class="sla-period-label">${p.label}:</span><span class="sla-percentage ${p.is_target_met ? 'met' : 'not-met'}">${p.achieved_percentage}%</span><span class="sla-details">(${p.met_intervals} of ${p.total_intervals} total)</span></div>`; });
+
+        document.getElementById('individual-csv-download').href = `generate_csv.php?isp_id=${data.current_isp_profile_id}`;
+        
+        renderChart('rttChart', { 'Avg RTT (ms)': 'avg_rtt_ms', 'Avg Jitter (ms)': 'avg_jitter_ms', 'Packet Loss (%)': 'avg_loss_percent' }, data.rtt_chart_data, 'timestamp');
+        renderChart('speedTestChart', { 'Download (Mbps)': 'speedtest_download_mbps', 'Upload (Mbps)': 'speedtest_upload_mbps' }, data.speed_chart_data, 'timestamp');
+        summaryView.classList.add('hidden'); detailView.classList.remove('hidden');
+    };
+    
+    const renderChart = (canvasId, seriesConfig, data, xKey) => {
+        const ctx = document.getElementById(canvasId)?.getContext('2d'); if (!ctx) return;
+        if (chartInstances[canvasId]) chartInstances[canvasId].destroy();
+        const isDark = document.body.classList.contains('dark-mode'); const colors = ['#36a2eb', '#ff6384', '#ff9f40', '#4bc0c0'];
+        const datasets = Object.entries(seriesConfig).map(([label, key], index) => ({
+            label, data: data.map(d => d[key]), borderColor: colors[index], backgroundColor: colors[index]+'33', type: label.includes('Loss') ? 'bar' : 'line',
+            tension: 0.3, fill: true, yAxisID: label.includes('Loss') ? 'y1' : 'y'
+        }));
+        const chartOptions = { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { x: { type: 'time', time: { unit: 'day', tooltipFormat: 'PPp' } }, y: { beginAtZero: true } }, plugins: { legend: { labels: {} } } };
+        // This is a simplified chart option, can be enhanced as before.
+        chartInstances[canvasId] = new Chart(ctx, { type: 'line', data: { labels: data.map(d => d[xKey]), datasets }, options: chartOptions });
+    };
+    
+    const applyTheme = (isDark) => { document.body.classList.toggle('dark-mode', isDark); fetchAndUpdateDashboard(profileSelector.value, currentPeriodDays); };
+    
+    document.body.addEventListener('click', e => { if(e.target.closest('.agent-list-item')) { const agentId = e.target.closest('.agent-list-item').dataset.id; profileSelector.value = agentId; history.pushState({agentId}, '', `?isp_id=${agentId}`); fetchAndUpdateDashboard(agentId, currentPeriodDays); } });
+    profileSelector.addEventListener('change', e => { const agentId = e.target.value; const url = agentId ? `?isp_id=${agentId}` : './'; history.pushState({agentId}, '', url); fetchAndUpdateDashboard(agentId, currentPeriodDays); });
+    periodSelector.addEventListener('click', e => { if(e.target.tagName === 'BUTTON'){ currentPeriodDays = e.target.dataset.period; fetchAndUpdateDashboard(profileSelector.value, currentPeriodDays); }});
+    themeToggle.addEventListener('change', () => { localStorage.setItem('dark-mode', themeToggle.checked); applyTheme(themeToggle.checked); });
+    
+    applyTheme(localStorage.getItem('dark-mode') === 'true');
+    fetchAndUpdateDashboard(new URLSearchParams(window.location.search).get('isp_id'), currentPeriodDays);
+});
+</script>
 </body>
 </html>
