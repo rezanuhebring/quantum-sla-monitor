@@ -63,7 +63,7 @@ fi
 
 # --- Step 1: Gather User Input for Secure Setup ---
 print_info "This script will configure a secure setup using Nginx and Let's Encrypt."
-read -p "Enter the domain name that points to this server (e.g., sla.soemath.com): " DOMAIN_NAME
+read -p "Enter the domain name that points to this server (e.g., host.domain.com): " DOMAIN_NAME
 if [ -z "$DOMAIN_NAME" ]; then print_error "Domain name cannot be empty. Aborting."; exit 1; fi
 
 read -p "Enter your email address (for Let's Encrypt renewal notices): " EMAIL_ADDRESS
