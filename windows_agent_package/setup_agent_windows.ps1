@@ -47,9 +47,14 @@ if (-not (Test-Path $SpeedtestExePath)) {
 if (-not (Test-Path $AgentInstallDir)) { New-Item -Path $AgentInstallDir -ItemType Directory -Force | Out-Null }
 Write-Host "Copying agent scripts..."
 try {
+    # Verify all source files exist before copying
+    if (-not (Test-Path (Join-Path $AgentSourcePath $MonitorScriptName))) { throw "Source file not found: $MonitorScriptName" }
+    if (-not (Test-Path (Join-Path $AgentSourcePath $UninstallerName))) { throw "Source file not found: $UninstallerName" }
+    if (-not (Test-Path (Join-Path $AgentSourcePath $ConfigTemplateName))) { throw "Source file not found: $ConfigTemplateName" }
+
     Copy-Item -Path (Join-Path $AgentSourcePath $MonitorScriptName) -Destination (Join-Path $AgentInstallDir $MonitorScriptName) -Force -ErrorAction Stop
     Write-Host "- Copied $MonitorScriptName"
-    # [NEW] Copy the uninstaller for convenience
+    
     Copy-Item -Path (Join-Path $AgentSourcePath $UninstallerName) -Destination (Join-Path $AgentInstallDir $UninstallerName) -Force -ErrorAction Stop
     Write-Host "- Copied $UninstallerName"
     
@@ -63,12 +68,12 @@ try {
 Write-Host "Verifying Speedtest path in agent configuration..."
 try {
     if (-not (Select-String -Path $DestinationConfigPath -Pattern '^\$SPEEDTEST_EXE_PATH' -Quiet)) {
-        Add-Content -Path $DestinationConfigPath -Value "`n`$SPEEDTEST_EXE_PATH = `"$SpeedtestExePath`""
+        Add-Content -Path $DestinationConfigPath -Value "`n# This line is added automatically by the setup script.`n`$SPEEDTEST_EXE_PATH = `"$SpeedtestExePath`""
         Write-Host "Speedtest path configured successfully in '$DestinationConfigPath'." -ForegroundColor Green
     } else { Write-Host "Speedtest path is already configured." }
 } catch { Write-Error "Failed to update config file with Speedtest path. Error: $($_.Exception.Message)" }
 
-# --- 4. [NEW] Securely Create API Key File ---
+# --- 4. Securely Create API Key File ---
 Write-Host "Configuring API Key..."
 $ApiKey = ""
 if (-not $Unattended) {
@@ -80,7 +85,7 @@ if (-not [string]::IsNullOrWhiteSpace($ApiKey)) {
     $SecureKeyPath = Join-Path $AgentInstallDir "api.key"
     $TempTaskName = "CreateSecureAgentKey-$(Get-Random)"
     
-    # This command will be executed by the SYSTEM account
+    # This command will be executed by the SYSTEM account to ensure correct encryption context
     $CommandToRun = "'$ApiKey' | ConvertTo-SecureString -AsPlainText -Force | ConvertFrom-SecureString | Out-File -FilePath '$SecureKeyPath' -Force -Encoding UTF8"
     
     $TaskAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -Command `"$CommandToRun`""
@@ -99,7 +104,7 @@ if (-not [string]::IsNullOrWhiteSpace($ApiKey)) {
         if (Test-Path $SecureKeyPath) {
             Write-Host "API key securely stored at '$SecureKeyPath'." -ForegroundColor Green
         } else {
-            Write-Error "Failed to create the secure API key file."
+            Write-Error "Failed to create the secure API key file. The temporary task may have timed out."
         }
     } catch {
         Write-Error "An error occurred during secure key creation: $($_.Exception.Message)"
@@ -133,7 +138,7 @@ Write-Host "--------------------------------------------------------------------
 Write-Host "NEXT STEPS:"
 Write-Host "1. CRITICAL: Edit the configuration file with this agent's unique ID and API URL:"
 Write-Host "   notepad `"$DestinationConfigPath`""
-Write-Host "2. The API key has been securely stored. No further action is needed for the key."
+Write-Host "2. The API key has been securely stored (if provided). No further action is needed for the key."
 Write-Host "3. To uninstall the agent later, run the uninstaller from an Administrator PowerShell:"
 Write-Host "   & `"$AgentInstallDir\$UninstallerName`""
 Write-Host "--------------------------------------------------------------------"
