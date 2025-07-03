@@ -1,22 +1,49 @@
 version: '3.8'
 
 services:
+  # This is YOUR application service, with its ports REMOVED.
+  # Its only job is to run the PHP code.
   sla_monitor_central_app:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: sla_monitor_central_app
     restart: unless-stopped
-    ports:
-      # CHANGED: The host port is now 8080, which maps to port 80 inside the container.
-      - "80:80"
-      # CHANGED: The host port is now 8443, which maps to port 443 inside the container.
-      - "443:443"
+    # PORTS SECTION HAS BEEN REMOVED FROM HERE. This is critical.
     volumes:
-      # These volume paths are correct and do not need to be changed.
+      # Your custom volume paths are preserved.
       - /srv/sla_monitor/central_app_data/opt_sla_monitor:/opt/sla_monitor
       - /srv/sla_monitor/central_app_data/apache_logs:/var/log/apache2
       - /srv/sla_monitor/central_app_data/api_logs/sla_api.log:/var/log/sla_api.log
     environment:
-      # This is correct and does not need to be changed.
+      # Your environment variable is preserved.
       APACHE_LOG_DIR: /var/log/apache2
+    # This service will join the private network.
+    networks:
+      - sla-monitor-network
+
+  # This is the NEW Nginx service.
+  # Its only job is to handle web traffic and forward it to your app.
+  nginx:
+    image: nginx:latest
+    container_name: sla_monitor_nginx
+    restart: unless-stopped
+    ports:
+      # Nginx now handles ALL public-facing ports.
+      - "80:80"
+      - "443:443"
+    volumes:
+      # This volume points to the nginx configuration file you need to create/verify.
+      - ./nginx/conf:/etc/nginx/conf.d
+      # This is the CRITICAL volume for SSL certificates.
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - sla_monitor_central_app
+    # This service also joins the private network to talk to the app.
+    networks:
+      - sla-monitor-network
+
+# This defines the private network our containers will use.
+networks:
+  sla-monitor-network:
+    driver: bridge
