@@ -1,29 +1,32 @@
+#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Automated setup for the Windows PowerShell SLA Monitoring Agent. FINAL PRODUCTION VERSION.
+    Automated setup for the Net-Insight Monitor Agent (Windows). V3 FINAL PRODUCTION VERSION.
 .DESCRIPTION
-    This script includes a robust and reliable method for adding the Speedtest path
-    to the agent's configuration file, fixing the "path not found" error.
+    This script installs the agent, dependencies, and creates a recurring scheduled task.
+    It provides clear instructions for the final manual configuration steps.
 #>
 param()
 
 # --- Self-Elevation to Administrator ---
 if (-Not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Warning "This script requires Administrator privileges. Attempting to re-launch as Admin..."
     $arguments = "-ExecutionPolicy Bypass -File `"$($myInvocation.mycommand.definition)`""
     Start-Process powershell -Verb runAs -ArgumentList $arguments
     exit
 }
 
 # --- Pre-flight Checks and Configuration ---
-Write-Host "Starting Windows SLA Monitor Agent Setup (Running as Administrator)..." -ForegroundColor Yellow
+Write-Host "Starting Net-Insight Monitor Agent Setup (Running as Administrator)..." -ForegroundColor Yellow
 
+# MODIFIED: Updated paths and names for the new project
 $AgentSourcePath = Split-Path -Parent $MyInvocation.MyCommand.Path
-$AgentInstallDir = "C:\SLA_Monitor_Agent"
+$AgentInstallDir = "C:\NetInsightAgent"
 $SpeedtestInstallDir = Join-Path $AgentInstallDir "speedtest"
 $SpeedtestExePath = Join-Path $SpeedtestInstallDir "speedtest.exe"
 $MonitorScriptName = "Monitor-InternetAgent.ps1"
-$ConfigTemplateName = "agent_config.ps1" # Using .ps1 for simplicity
-$DestinationConfigPath = Join-Path $AgentInstallDir $ConfigTemplateName
+$ConfigTemplateName = "agent_config.ps1.template"
+$DestinationConfigPath = Join-Path $AgentInstallDir "agent_config.ps1"
 
 # --- 1. Install Dependencies (Ookla Speedtest) ---
 if (-not (Test-Path $SpeedtestExePath)) {
@@ -40,23 +43,23 @@ if (-not (Test-Path $SpeedtestExePath)) {
 
 # --- 2. Deploy Agent Scripts ---
 if (-not (Test-Path $AgentInstallDir)) { New-Item -Path $AgentInstallDir -ItemType Directory -Force | Out-Null }
-Write-Host "Copying agent scripts..."
+Write-Host "Copying agent scripts to '$AgentInstallDir'..."
 try {
     Copy-Item -Path (Join-Path $AgentSourcePath $MonitorScriptName) -Destination (Join-Path $AgentInstallDir $MonitorScriptName) -Force -ErrorAction Stop
     Write-Host "- Copied $MonitorScriptName"
     if (-not (Test-Path $DestinationConfigPath)) {
         Copy-Item -Path (Join-Path $AgentSourcePath $ConfigTemplateName) -Destination $DestinationConfigPath -Force -ErrorAction Stop
-        Write-Host "- Copied $ConfigTemplateName as initial configuration." -ForegroundColor Magenta
-    } else { Write-Host "- Config file $DestinationConfigPath already exists. Skipping copy." -ForegroundColor Yellow }
+        Write-Host "- Copied configuration template." -ForegroundColor Magenta
+    } else { Write-Host "- Config file $DestinationConfigPath already exists. Skipping copy to preserve settings." -ForegroundColor Yellow }
 } catch { Write-Error "Failed to copy agent files: $($_.Exception.Message)"; Read-Host "Press Enter to exit"; exit 1 }
 
 # --- 3. Add Speedtest Path to Agent Config ---
 Write-Host "Verifying Speedtest path in agent configuration..."
 try {
-    # *** FIX: Use robust Select-String to check if the line already exists ***
-    $LineExists = Select-String -Path $DestinationConfigPath -Pattern '^\$SPEEDTEST_EXE_PATH' -Quiet
+    # Use robust Select-String to check if the line already exists to prevent duplicates
+    $LineExists = Select-String -Path $DestinationConfigPath -Pattern '^\$script:SPEEDTEST_EXE_PATH' -Quiet
     if (-not $LineExists) {
-        $ConfigLine = "`n`$SPEEDTEST_EXE_PATH = `"$SpeedtestExePath`""
+        $ConfigLine = "`n`$script:SPEEDTEST_EXE_PATH = `"$SpeedtestExePath`""
         Add-Content -Path $DestinationConfigPath -Value $ConfigLine
         Write-Host "Speedtest path configured successfully in '$DestinationConfigPath'." -ForegroundColor Green
     } else {
@@ -72,7 +75,7 @@ try { & $SpeedtestExePath --accept-license --accept-gdpr | Out-Null }
 catch { Write-Warning "Could not run speedtest.exe to accept license. This may be a temporary network issue. Error: $($_.Exception.Message)" }
 
 # --- 5. Create/Update Scheduled Task ---
-$TaskName = "InternetSLAMonitorAgent"
+$TaskName = "NetInsightMonitorAgent" # MODIFIED: New task name
 $TaskAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$AgentInstallDir\$MonitorScriptName`""
 $TaskTrigger = New-ScheduledTaskTrigger -RepetitionInterval (New-TimeSpan -Minutes 15) -Once -At (Get-Date)
 $TaskPrincipal = New-ScheduledTaskPrincipal -UserID "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
@@ -85,14 +88,22 @@ try {
 } catch { Write-Error "Failed to register task '$TaskName': $($_.Exception.Message)"; Write-Warning "You may need to create the task manually." }
 
 # --- Final Instructions ---
-Write-Host "`nWindows SLA Monitor Agent Setup Complete." -ForegroundColor Green
+# MODIFIED: Updated instructions for clarity and new requirements
+$LogFilePath = Join-Path $AgentInstallDir "net_insight_agent_windows.log"
+Write-Host "`nNet-Insight Monitor Agent Setup Complete." -ForegroundColor Green
 Write-Host "--------------------------------------------------------------------"
-Write-Host "NEXT STEPS:"
-Write-Host "1. CRITICAL: Review/edit the configuration file with this agent's unique details:"
+Write-Host "CRITICAL NEXT STEPS:" -ForegroundColor Yellow
+Write-Host "1. You MUST edit the configuration file with this agent's unique details:"
 Write-Host "   notepad `"$DestinationConfigPath`""
-Write-Host "2. Test the script by running it directly from an Administrator PowerShell:"
+Write-Host "2. Inside the file, you must set these three values:"
+Write-Host "   - `$script:AGENT_IDENTIFIER = `"Your-Unique-Agent-Name`""
+Write-Host "   - `$script:CENTRAL_API_URL = `"https://your.server.com/api/submit_metrics.php`""
+Write-Host "   - `$script:CENTRAL_API_KEY = `"Paste-The-Key-From-Server-Setup-Here`""
+Write-Host ""
+Write-Host "3. To test, run the script directly from an Administrator PowerShell:"
 Write-Host "   & `"$AgentInstallDir\$MonitorScriptName`""
-Write-Host "3. Check the agent's log file for output:"
-Write-Host "   Get-Content `"$AgentInstallDir\internet_monitor_agent_windows.log`" -Tail 10 -Wait"
+Write-Host ""
+Write-Host "4. Check the agent's log file for output:"
+Write-Host "   Get-Content `"$LogFilePath`" -Tail 10 -Wait"
 Write-Host "--------------------------------------------------------------------"
 Read-Host "Press Enter to exit"
