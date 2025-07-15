@@ -1,10 +1,10 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Automated setup for the Net-Insight Monitor Agent (Windows). V3 FINAL PRODUCTION VERSION.
+    Automated setup for the Net-Insight Monitor Agent (Windows). V3.1 FINAL PRODUCTION VERSION.
 .DESCRIPTION
     This script installs the agent, dependencies, and creates a recurring scheduled task.
-    It provides clear instructions for the final manual configuration steps.
+    *** FIX: Includes the -WorkingDirectory parameter to ensure the scheduled task runs reliably. ***
 #>
 param()
 
@@ -19,7 +19,6 @@ if (-Not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 # --- Pre-flight Checks and Configuration ---
 Write-Host "Starting Net-Insight Monitor Agent Setup (Running as Administrator)..." -ForegroundColor Yellow
 
-# MODIFIED: Updated paths and names for the new project
 $AgentSourcePath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $AgentInstallDir = "C:\NetInsightAgent"
 $SpeedtestInstallDir = Join-Path $AgentInstallDir "speedtest"
@@ -56,7 +55,6 @@ try {
 # --- 3. Add Speedtest Path to Agent Config ---
 Write-Host "Verifying Speedtest path in agent configuration..."
 try {
-    # Use robust Select-String to check if the line already exists to prevent duplicates
     $LineExists = Select-String -Path $DestinationConfigPath -Pattern '^\$script:SPEEDTEST_EXE_PATH' -Quiet
     if (-not $LineExists) {
         $ConfigLine = "`n`$script:SPEEDTEST_EXE_PATH = `"$SpeedtestExePath`""
@@ -75,8 +73,9 @@ try { & $SpeedtestExePath --accept-license --accept-gdpr | Out-Null }
 catch { Write-Warning "Could not run speedtest.exe to accept license. This may be a temporary network issue. Error: $($_.Exception.Message)" }
 
 # --- 5. Create/Update Scheduled Task ---
-$TaskName = "NetInsightMonitorAgent" # MODIFIED: New task name
-$TaskAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$AgentInstallDir\$MonitorScriptName`""
+$TaskName = "NetInsightMonitorAgent"
+# *** FIX: Added the -WorkingDirectory parameter to ensure the script runs in the correct folder. ***
+$TaskAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$AgentInstallDir\$MonitorScriptName`"" -WorkingDirectory $AgentInstallDir
 $TaskTrigger = New-ScheduledTaskTrigger -RepetitionInterval (New-TimeSpan -Minutes 15) -Once -At (Get-Date)
 $TaskPrincipal = New-ScheduledTaskPrincipal -UserID "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 $TaskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1) -MultipleInstances IgnoreNew
@@ -84,11 +83,10 @@ Write-Host "Registering scheduled task '$TaskName'..."
 try {
     Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false
     Register-ScheduledTask -TaskName $TaskName -Action $TaskAction -Trigger $TaskTrigger -Principal $TaskPrincipal -Settings $TaskSettings -ErrorAction Stop
-    Write-Host "Scheduled task '$TaskName' created/updated successfully."
+    Write-Host "Scheduled task '$TaskName' created/updated successfully with the correct working directory." -ForegroundColor Green
 } catch { Write-Error "Failed to register task '$TaskName': $($_.Exception.Message)"; Write-Warning "You may need to create the task manually." }
 
 # --- Final Instructions ---
-# MODIFIED: Updated instructions for clarity and new requirements
 $LogFilePath = Join-Path $AgentInstallDir "net_insight_agent_windows.log"
 Write-Host "`nNet-Insight Monitor Agent Setup Complete." -ForegroundColor Green
 Write-Host "--------------------------------------------------------------------"
