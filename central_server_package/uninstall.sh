@@ -90,4 +90,3 @@ fi
 
 echo
 print_success "Uninstallation script finished."
-fi

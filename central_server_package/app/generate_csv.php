@@ -93,9 +93,16 @@ try {
     exit();
 
 } catch (Exception $e) {
-    // If something goes wrong, send an error response instead of a broken file
-    http_response_code(500); // Internal Server Error
-    header('Content-Type: text/plain'); // Reset content type
-    die("Server Error: Could not generate the CSV file. Please check server logs. Details: " . $e->getMessage());
+    // FIX: Check if headers have already been sent before trying to send new ones.
+    if (!headers_sent()) {
+        http_response_code(500); // Internal Server Error
+        header('Content-Type: text/plain'); // Reset content type
+    }
+    // It's crucial to log the actual error for debugging.
+    // Using error_log is better than just dying, as it can be directed to a file.
+    error_log("CSV Generation Failed: " . $e->getMessage());
+    
+    // Provide a user-friendly message. Don't expose raw error details unless in a debug mode.
+    die("Server Error: Could not generate the CSV file. Please contact an administrator.");
 }
 ?>

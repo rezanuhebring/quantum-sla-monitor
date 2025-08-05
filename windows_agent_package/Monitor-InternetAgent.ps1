@@ -97,19 +97,42 @@ try {
 
     # PING TESTS
     if ($ENABLE_PING) {
-        Write-Log -Message "Performing ping tests using ping.exe..."
-        $TotalRttSum = 0.0; $TotalLossCount = 0; $PingTargetsUp = 0;
+        Write-Log -Message "Performing ping tests using Test-Connection..."
+        $TotalRttSum = 0.0; $TotalLossCount = 0; $PingTargetsUp = 0; $JitterMeasurements = @();
         foreach ($pingTarget in $PING_HOSTS) {
             try {
-                $pingOutput = cmd.exe /c "chcp 437 & ping -n $PING_COUNT $pingTarget";
-                if ($LASTEXITCODE -eq 0) {
-                    Write-Log -Message "Ping to ${pingTarget}: SUCCESS"; $PingTargetsUp++;
-                    $LossLine = $pingOutput | Select-String -Pattern "Lost ="; $PacketLoss = ($LossLine -split 'Lost = ')[1] -split ' \(' | Select-Object -First 1; $TotalLossCount += [int]$PacketLoss;
-                    $RttLine = $pingOutput | Select-String -Pattern "Average ="; $AvgRtt = ($RttLine -split 'Average = ')[1] -replace 'ms', '' | ForEach-Object { $_.Trim() }; $TotalRttSum += [double]$AvgRtt;
-                } else { Write-Log -Message "Ping to ${pingTarget}: FAIL" }
-            } catch { Write-Log -Level WARN -Message "Ping test to ${pingTarget} failed. Exception: $($_.Exception.Message)" }
+                # Use PowerShell's native Test-Connection which is more robust
+                $pingResult = Test-Connection -TargetName $pingTarget -Count $PING_COUNT -ErrorAction Stop
+                $PingTargetsUp++
+                # Sum the round-trip times for averaging later
+                $TotalRttSum += ($pingResult | Measure-Object -Property ResponseTime -Average).Average
+                # Calculate jitter for this target
+                $rtt_values = $pingResult.ResponseTime
+                if ($rtt_values.Count -gt 1) {
+                    for ($i = 0; $i -lt ($rtt_values.Count - 1); $i++) {
+                        $JitterMeasurements += [math]::Abs($rtt_values[$i+1] - $rtt_values[$i])
+                    }
+                }
+                Write-Log -Message "Ping to ${pingTarget}: SUCCESS"
+            } catch {
+                # If Test-Connection fails completely, it's 100% loss for this target
+                $TotalLossCount += $PING_COUNT
+                Write-Log -Level WARN -Message "Ping test to ${pingTarget} failed. Exception: $($_.Exception.Message)"
+            }
         }
-        if ($PingTargetsUp -gt 0) { $Results.ping_summary.status = "UP"; $Results.ping_summary.average_rtt_ms = [math]::Round($TotalRttSum / $PingTargetsUp, 2); $Results.ping_summary.average_packet_loss_percent = [math]::Round( ($TotalLossCount / $PingTargetsUp), 1 ); $Results.ping_summary.average_jitter_ms = $null; }
+        if ($PingTargetsUp -gt 0) {
+            $Results.ping_summary.status = "UP"
+            $Results.ping_summary.average_rtt_ms = [math]::Round($TotalRttSum / $PingTargetsUp, 2)
+            # Loss is total failed pings / total attempted pings
+            $TotalPings = $PING_HOSTS.Count * $PING_COUNT
+            $Results.ping_summary.average_packet_loss_percent = [math]::Round( ($TotalLossCount / $TotalPings) * 100, 1 )
+            # Calculate average jitter across all successful pings
+            if ($JitterMeasurements.Count -gt 0) {
+                $Results.ping_summary.average_jitter_ms = [math]::Round(($JitterMeasurements | Measure-Object -Average).Average, 2)
+            } else {
+                $Results.ping_summary.average_jitter_ms = $null
+            }
+        }
         else { $Results.ping_summary.status = "DOWN" }
     }
 

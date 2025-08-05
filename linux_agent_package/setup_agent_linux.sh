@@ -82,7 +82,7 @@ CRON_FILE_DEST="/etc/cron.d/${CRON_FILE_NAME}"
 print_info "Creating cron job at ${CRON_FILE_DEST}"
 
 # *** FIX: Use a robust method to create the cron file WITH output redirection ***
-sudo tee "${CRON_FILE_DEST}" > /dev/null <<EOF
+sudo tee "${CRON_FILE_DEST}" > /dev/null <<'EOF'
 # SLA Monitor AGENT Cron Job
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin

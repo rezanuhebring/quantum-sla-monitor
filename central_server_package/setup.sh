@@ -260,14 +260,65 @@ if [ "${MIGRATION_MODE}" = false ]; then
     sudo touch "${SQLITE_DB_FILE_HOST_PATH}"
     sudo sqlite3 "${SQLITE_DB_FILE_HOST_PATH}" "
         PRAGMA journal_mode=WAL;
-        CREATE TABLE isp_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_name TEXT NOT NULL, agent_identifier TEXT NOT NULL UNIQUE, last_heard_from TEXT);
-        CREATE TABLE sla_metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, isp_profile_id INTEGER NOT NULL, timestamp TEXT NOT NULL, avg_rtt_ms REAL, avg_loss_percent REAL, FOREIGN KEY (isp_profile_id) REFERENCES isp_profiles(id), UNIQUE(isp_profile_id, timestamp));
+        CREATE TABLE isp_profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_name TEXT NOT NULL,
+            agent_identifier TEXT NOT NULL UNIQUE,
+            agent_type TEXT DEFAULT 'Client',
+            network_interface_to_monitor TEXT,
+            sla_target_percentage REAL DEFAULT 99.9,
+            rtt_degraded INTEGER DEFAULT 150,
+            rtt_poor INTEGER DEFAULT 350,
+            loss_degraded REAL DEFAULT 2,
+            loss_poor REAL DEFAULT 10,
+            ping_jitter_degraded REAL DEFAULT 30,
+            ping_jitter_poor REAL DEFAULT 50,
+            dns_time_degraded INTEGER DEFAULT 300,
+            dns_time_poor INTEGER DEFAULT 800,
+            http_time_degraded REAL DEFAULT 1.5,
+            http_time_poor REAL DEFAULT 3.0,
+            speedtest_dl_degraded REAL DEFAULT 50,
+            speedtest_dl_poor REAL DEFAULT 20,
+            speedtest_ul_degraded REAL DEFAULT 10,
+            speedtest_ul_poor REAL DEFAULT 3,
+            teams_webhook_url TEXT,
+            alert_hostname_override TEXT,
+            notes TEXT,
+            is_active INTEGER DEFAULT 1,
+            last_heard_from TEXT,
+            last_reported_hostname TEXT,
+            last_reported_source_ip TEXT
+        );
+        CREATE TABLE sla_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            isp_profile_id INTEGER NOT NULL,
+            timestamp TEXT NOT NULL,
+            overall_connectivity TEXT,
+            avg_rtt_ms REAL,
+            avg_loss_percent REAL,
+            avg_jitter_ms REAL,
+            dns_status TEXT,
+            dns_resolve_time_ms INTEGER,
+            http_status TEXT,
+            http_response_code INTEGER,
+            http_total_time_s REAL,
+            speedtest_status TEXT,
+            speedtest_download_mbps REAL,
+            speedtest_upload_mbps REAL,
+            speedtest_ping_ms REAL,
+            speedtest_jitter_ms REAL,
+            detailed_health_summary TEXT,
+            sla_met_interval INTEGER,
+            FOREIGN KEY (isp_profile_id) REFERENCES isp_profiles(id) ON DELETE CASCADE,
+            UNIQUE(isp_profile_id, timestamp)
+        );
         CREATE INDEX IF NOT EXISTS idx_isp_profiles_agent_identifier ON isp_profiles (agent_identifier);
+        CREATE INDEX IF NOT EXISTS idx_sla_metrics_timestamp ON sla_metrics (timestamp);
+        CREATE INDEX IF NOT EXISTS idx_sla_metrics_isp_profile_id ON sla_metrics (isp_profile_id);
     "
 else
     print_info "Existing database found. Skipping schema creation."
-    # The self-healing logic for the bad UNIQUE constraint could be placed here if needed again.
-    # For now, we assume the schema is either new or already correct.
+    # Self-healing logic for schema updates can be added here in the future.
 fi
 
 print_info "Setting final data permissions..."

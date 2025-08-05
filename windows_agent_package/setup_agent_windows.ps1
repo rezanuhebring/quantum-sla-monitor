@@ -22,8 +22,9 @@ $AgentInstallDir = "C:\SLA_Monitor_Agent"
 $SpeedtestInstallDir = Join-Path $AgentInstallDir "speedtest"
 $SpeedtestExePath = Join-Path $SpeedtestInstallDir "speedtest.exe"
 $MonitorScriptName = "Monitor-InternetAgent.ps1"
-$ConfigTemplateName = "agent_config.ps1" # Using .ps1 for simplicity
-$DestinationConfigPath = Join-Path $AgentInstallDir $ConfigTemplateName
+$ConfigTemplateName = "agent_config.ps1.template"
+$DestinationConfigName = "agent_config.ps1"
+$DestinationConfigPath = Join-Path $AgentInstallDir $DestinationConfigName
 
 # --- 1. Install Dependencies (Ookla Speedtest) ---
 if (-not (Test-Path $SpeedtestExePath)) {
@@ -46,7 +47,7 @@ try {
     Write-Host "- Copied $MonitorScriptName"
     if (-not (Test-Path $DestinationConfigPath)) {
         Copy-Item -Path (Join-Path $AgentSourcePath $ConfigTemplateName) -Destination $DestinationConfigPath -Force -ErrorAction Stop
-        Write-Host "- Copied $ConfigTemplateName as initial configuration." -ForegroundColor Magenta
+        Write-Host "- Copied $ConfigTemplateName as initial configuration to $DestinationConfigName." -ForegroundColor Magenta
     } else { Write-Host "- Config file $DestinationConfigPath already exists. Skipping copy." -ForegroundColor Yellow }
 } catch { Write-Error "Failed to copy agent files: $($_.Exception.Message)"; Read-Host "Press Enter to exit"; exit 1 }
 
