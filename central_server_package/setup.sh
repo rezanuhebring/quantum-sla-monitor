@@ -57,9 +57,17 @@ if [ -d "${HOST_DATA_ROOT}" ]; then
     print_warn "Entering MIGRATION mode. Your data will be preserved."
     MIGRATION_MODE=true
     
-    # If any old container is running, stop it gracefully before proceeding.
     # -- FIX APPLIED HERE --
-    if [[ -n "$(docker ps -q -f name=^/${APP_SERVICE_NAME}$")" || -n "$(docker ps -q -f name=^/${NGINX_SERVICE_NAME}$")" ]]; then
+    # This universally compatible logic checks for running containers one by one.
+    containers_running=false
+    if [ -n "$(docker ps -q -f name=^/${APP_SERVICE_NAME}$")" ]; then
+        containers_running=true
+    fi
+    if [ -n "$(docker ps -q -f name=^/${NGINX_SERVICE_NAME}$")" ]; then
+        containers_running=true
+    fi
+
+    if [ "$containers_running" = true ]; then
         print_info "Stopping old running container(s)..."
         # We need a docker-compose.yml to exist to run down
         if [ -f "${DOCKER_COMPOSE_FILE_NAME}" ]; then
