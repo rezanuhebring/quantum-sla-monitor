@@ -1,4 +1,3 @@
-cat <<'EOF' > setup.sh
 #!/bin/bash
 # setup.sh - UNIFIED SCRIPT FOR PRODUCTION & DEVELOPMENT
 # Handles fresh installs and data-preserving migrations for both secure
@@ -420,4 +419,3 @@ fi
 
 print_info "Setup script finished."
 exit 0
-EOF
