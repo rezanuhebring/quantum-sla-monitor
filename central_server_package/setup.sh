@@ -57,7 +57,6 @@ if [ -d "${HOST_DATA_ROOT}" ]; then
     print_warn "Entering MIGRATION mode. Your data will be preserved."
     MIGRATION_MODE=true
     
-    # -- FIX APPLIED HERE --
     # This universally compatible logic checks for running containers one by one.
     containers_running=false
     if [ -n "$(docker ps -q -f name=^/${APP_SERVICE_NAME}$")" ]; then
