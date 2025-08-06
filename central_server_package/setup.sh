@@ -56,13 +56,18 @@ if [ -d "${HOST_DATA_ROOT}" ]; then
     print_warn "Existing data found at ${HOST_DATA_ROOT}."
     print_warn "Entering MIGRATION mode. Your data will be preserved."
     MIGRATION_MODE=true
-    
-    # This universally compatible logic checks for running containers one by one.
+
+    # --- NEW ROBUST CHECK ---
+    # This logic separates command execution from the 'if' test to be as safe as possible.
     containers_running=false
-    if [ -n "$(docker ps -q -f name=^/${APP_SERVICE_NAME}$")" ]; then
+    
+    app_container_id=$(docker ps -q -f "name=^/${APP_SERVICE_NAME}$")
+    if [ -n "$app_container_id" ]; then
         containers_running=true
     fi
-    if [ -n "$(docker ps -q -f name=^/${NGINX_SERVICE_NAME}$")" ]; then
+    
+    nginx_container_id=$(docker ps -q -f "name=^/${NGINX_SERVICE_NAME}$")
+    if [ -n "$nginx_container_id" ]; then
         containers_running=true
     fi
 
