@@ -404,6 +404,12 @@ if [ "${MIGRATION_MODE}" = false ]; then
         CREATE INDEX IF NOT EXISTS idx_isp_profiles_agent_identifier ON isp_profiles (agent_identifier);
         CREATE INDEX IF NOT EXISTS idx_sla_metrics_timestamp ON sla_metrics (timestamp);
         CREATE INDEX IF NOT EXISTS idx_sla_metrics_isp_profile_id ON sla_metrics (isp_profile_id);
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
     "
 else
     print_info "Existing database found. Skipping schema creation."

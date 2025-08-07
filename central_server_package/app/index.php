@@ -1,3 +1,10 @@
+<?php
+session_start();
+if (!isset($_SESSION['user_id'])) {
+    header('Location: login.php');
+    exit;
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -11,6 +18,8 @@
         .dashboard-container { max-width: 1400px; margin: 0 auto; background-color: var(--card-bg); padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px var(--shadow-color); }
         h1 { font-size: 2em; margin: 0; } h2 { font-size: 1.5em; margin-top: 30px; margin-bottom: 20px; text-align: left; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;}
         .top-bar { display: flex; justify-content: space-between; align-items: center; }
+        .top-controls { display: flex; align-items: center; gap: 20px; }
+        .logout-button { padding: 8px 12px; background-color: var(--red); color: white; text-decoration: none; border-radius: 4px; font-weight: 500; }
         .top-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--border-color); flex-wrap: wrap; gap: 15px; }
         .selector-group { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
         .selector-group label { font-weight: 500; }
@@ -58,7 +67,7 @@
 </head>
 <body>
     <div class="dashboard-container">
-        <div class="top-bar"><h1>Internet Performance Monitor</h1><div class="theme-switcher"><span class="theme-switcher-label">Dark Mode</span><label class="switch"><input type="checkbox" id="theme-toggle"><span class="slider"></span></label></div></div>
+        <div class="top-bar"><h1>Internet Performance Monitor</h1><div class="top-controls"><div class="theme-switcher"><span class="theme-switcher-label">Dark Mode</span><label class="switch"><input type="checkbox" id="theme-toggle"><span class="slider"></span></label></div><a href="logout.php" class="logout-button">Logout</a></div></div>
         <div class="top-info"><div class="selector-group"><label for="isp-profile-selector">View:</label><select id="isp-profile-selector"><option value="">-- Overall Summary --</option></select></div><div class="selector-group"><label>Period:</label><div class="time-period-selector"><button data-period="1" class="active">24h</button><button data-period="7">7d</button><button data-period="30">30d</button><button data-period="365">1y</button></div></div></div>
         <div id="loader" class="loader"></div>
         <div id="dashboard-content" class="hidden">
