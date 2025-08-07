@@ -82,8 +82,9 @@
                     <div class="card"><h3>Speedtest</h3><p><span>Download:</span><strong id="speed-dl"></strong></p><p><span>Upload:</span><strong id="speed-ul"></strong></p><p><span>Ping (ISP):</span><strong id="speed-ping"></strong></p></div>
                     <!-- UPDATED: SLA Card with Progress Bars -->
                     <div class="card"><h3>Service Level Agreement (<span class="period-label"></span>)</h3><div id="historical-sla-data"></div></div>
+                    <div id="wifi-status-card" class="card hidden"><h3>WiFi Status</h3><p><span>Status:</span><strong id="wifi-status"></strong></p><p><span>SSID:</span><strong id="wifi-ssid"></strong></p><p><span>Signal:</span><strong id="wifi-signal"></strong></p><p><span>Frequency:</span><strong id="wifi-frequency"></strong></p></div>
                 </div>
-                <div class="chart-card card" style="margin-top:20px;"><h3>Historical Performance (<span class="period-label"></span>)</h3><div class="chart-container"><canvas id="rttChart"></canvas></div><div class="chart-container" style="margin-top:20px;"><canvas id="speedTestChart"></canvas></div></div>
+                <div class="chart-card card" style="margin-top:20px;"><h3>Historical Performance (<span class="period-label"></span>)</h3><div class="chart-container"><canvas id="rttChart"></canvas></div><div class="chart-container" style="margin-top:20px;"><canvas id="speedTestChart"></canvas></div><div id="wifi-chart-container" class="chart-container hidden" style="margin-top:20px;"><canvas id="wifiSignalChart"></canvas></div></div>
             </div>
         </div>
     </div>
@@ -238,6 +239,27 @@ document.addEventListener('DOMContentLoaded', () => {
         
         renderChart('rttChart', { 'Avg RTT (ms)': 'avg_rtt_ms', 'Avg Jitter (ms)': 'avg_jitter_ms', 'Packet Loss (%)': 'avg_loss_percent' }, data.rtt_chart_data, 'timestamp');
         renderChart('speedTestChart', { 'Download (Mbps)': 'speedtest_download_mbps', 'Upload (Mbps)': 'speedtest_upload_mbps' }, data.speed_chart_data, 'timestamp');
+
+        // --- NEW: WiFi Chart & Info Handling ---
+        const wifiCard = document.getElementById('wifi-status-card');
+        const wifiChartContainer = document.getElementById('wifi-chart-container');
+        const agentProfile = data.isp_profiles.find(p => p.id == data.current_isp_profile_id);
+
+        if (agentProfile && agentProfile.agent_type === 'Client' && data.wifi_chart_data.length > 0) {
+            wifiCard.classList.remove('hidden');
+            wifiChartContainer.classList.remove('hidden');
+            
+            setText('wifi-status', latest?.wifi_status);
+            setText('wifi-ssid', latest?.wifi_ssid);
+            setText('wifi-signal', latest?.wifi_signal_strength_percent, ' %');
+            setText('wifi-frequency', latest?.wifi_frequency_band);
+
+            renderChart('wifiSignalChart', { 'WiFi Signal (%)': 'wifi_signal_strength_percent' }, data.wifi_chart_data, 'timestamp');
+        } else {
+            wifiCard.classList.add('hidden');
+            wifiChartContainer.classList.add('hidden');
+        }
+
         summaryView.classList.add('hidden'); detailView.classList.remove('hidden');
     };
     

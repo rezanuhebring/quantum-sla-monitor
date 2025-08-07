@@ -28,7 +28,7 @@ header('Cache-Control: no-cache, must-revalidate, no-store, max-age=0');
 
 $response_data = [
     'isp_profiles' => [], 'all_agent_status' => [], 'current_isp_profile_id' => null, 'current_isp_name' => 'N/A', 'target_sla_percentage' => 99.5, 'periods' => [],
-    'rtt_chart_data' => [], 'speed_chart_data' => [], 'cumulative_ping_chart_data' => [], 'cumulative_speed_chart_data' => [], 'latest_check' => null, 
+    'rtt_chart_data' => [], 'speed_chart_data' => [], 'wifi_chart_data' => [], 'cumulative_ping_chart_data' => [], 'cumulative_speed_chart_data' => [], 'latest_check' => null, 
     'dashboard_refresh_interval_ms' => 60000, 'agent_stale_minutes' => ($EXPECTED_INTERVAL_MINUTES + 5), 'central_api_key' => 'Not Disclosed'
 ];
 
@@ -65,12 +65,13 @@ try {
         if ($latest = $latest_check_stmt->execute()->fetchArray(SQLITE3_ASSOC)) { $response_data['latest_check'] = $latest; }
         $latest_check_stmt->close();
         
-        $chart_query = $db->prepare("SELECT timestamp, avg_rtt_ms, avg_loss_percent, avg_jitter_ms, speedtest_download_mbps, speedtest_upload_mbps, speedtest_status FROM sla_metrics WHERE isp_profile_id = :id AND timestamp >= :start_date ORDER BY timestamp ASC");
+        $chart_query = $db->prepare("SELECT timestamp, avg_rtt_ms, avg_loss_percent, avg_jitter_ms, speedtest_download_mbps, speedtest_upload_mbps, speedtest_status, wifi_signal_strength_percent, wifi_status FROM sla_metrics WHERE isp_profile_id = :id AND timestamp >= :start_date ORDER BY timestamp ASC");
         $chart_query->bindValue(':id', $current_isp_profile_id, SQLITE3_INTEGER); $chart_query->bindValue(':start_date', $start_date_iso);
         $chart_result = $chart_query->execute();
         while($row = $chart_result->fetchArray(SQLITE3_ASSOC)) {
             $response_data['rtt_chart_data'][] = $row;
             if ($row['speedtest_status'] === 'COMPLETED') $response_data['speed_chart_data'][] = $row;
+            if ($row['wifi_status'] === 'CONNECTED') $response_data['wifi_chart_data'][] = $row;
         }
         $chart_query->close();
     } else {

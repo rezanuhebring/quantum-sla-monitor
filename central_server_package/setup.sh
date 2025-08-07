@@ -394,6 +394,10 @@ if [ "${MIGRATION_MODE}" = false ]; then
             speedtest_jitter_ms REAL,
             detailed_health_summary TEXT,
             sla_met_interval INTEGER,
+            wifi_status TEXT,
+            wifi_ssid TEXT,
+            wifi_signal_strength_percent INTEGER,
+            wifi_frequency_band TEXT,
             FOREIGN KEY (isp_profile_id) REFERENCES isp_profiles(id) ON DELETE CASCADE,
             UNIQUE(isp_profile_id, timestamp)
         );
@@ -403,6 +407,36 @@ if [ "${MIGRATION_MODE}" = false ]; then
     "
 else
     print_info "Existing database found. Skipping schema creation."
+    # --- NEW: Data-preserving migration for new columns ---
+    print_info "Checking for necessary database migrations..."
+    
+    # Helper function to safely add a column if it doesn't exist
+    add_column_if_not_exists() {
+        local table_name="$1"
+        local column_name="$2"
+        local column_def="$3"
+        
+        # Check if the column exists by querying the pragma_table_info
+        local column_exists=$(sudo sqlite3 "${SQLITE_DB_FILE_HOST_PATH}" "SELECT COUNT(*) FROM pragma_table_info('${table_name}') WHERE name='${column_name}';")
+        
+        if [ "$column_exists" -eq 0 ]; then
+            print_info "Adding column '${column_name}' to table '${table_name}'..."
+            sudo sqlite3 "${SQLITE_DB_FILE_HOST_PATH}" "ALTER TABLE ${table_name} ADD COLUMN ${column_name} ${column_def};"
+            if [ $? -eq 0 ]; then
+                print_success " -> Column '${column_name}' added successfully."
+            else
+                print_error " -> Failed to add column '${column_name}'. Please check permissions and schema."
+            fi
+        else
+            print_info "Column '${column_name}' already exists in '${table_name}'. No action needed."
+        fi
+    }
+
+    # Add new columns for WiFi metrics to the sla_metrics table
+    add_column_if_not_exists "sla_metrics" "wifi_status" "TEXT"
+    add_column_if_not_exists "sla_metrics" "wifi_ssid" "TEXT"
+    add_column_if_not_exists "sla_metrics" "wifi_signal_strength_percent" "INTEGER"
+    add_column_if_not_exists "sla_metrics" "wifi_frequency_band" "TEXT"
 fi
 
 print_info "Setting final data permissions..."

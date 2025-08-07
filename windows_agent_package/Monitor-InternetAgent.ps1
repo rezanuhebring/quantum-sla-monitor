@@ -154,6 +154,63 @@ try {
         } else { Write-Log -Level WARN -Message "speedtest.exe path not configured or not found. Please re-run setup script." }
     }
 
+    # WIFI CLIENT METRICS
+    if ($AGENT_TYPE -eq "Client") {
+        Write-Log "Client agent detected, collecting WiFi metrics..."
+        $Results.wifi_info = @{ status = "NOT_APPLICABLE" }
+        try {
+            # Get all interface information and split it into blocks for each interface.
+            $InterfaceBlocks = (netsh wlan show interfaces) -join "`n" -split '(?:\r?\n){2,}'
+            
+            $ConnectedInterfaceInfo = $null
+            foreach ($block in $InterfaceBlocks) {
+                if ($block -match "State\s+:\s+connected") {
+                    $ConnectedInterfaceInfo = $block
+                    break
+                }
+            }
+
+            if ($ConnectedInterfaceInfo) {
+                # Convert the key-value pair output into a hashtable for easy access.
+                $props = @{}
+                $ConnectedInterfaceInfo -split '(?:\r?\n)' | ForEach-Object {
+                    if ($_ -match '^\s*(.+?)\s+:\s+(.+?)\s*$') {
+                        $props[$Matches[1].Trim()] = $Matches[2].Trim()
+                    }
+                }
+
+                if ($props['SSID'] -and $props['Signal'] -and $props['Channel']) {
+                    # Determine frequency band using PS 5.1 compatible logic
+                    $freq_band = "Unknown"
+                    $channelNum = [int]$props['Channel']
+                    if ($channelNum -ge 1 -and $channelNum -le 14) {
+                        $freq_band = "2.4 GHz"
+                    } elseif ($channelNum -ge 36) {
+                        $freq_band = "5 GHz"
+                    }
+
+                    $Results.wifi_info = @{
+                        status = "CONNECTED"
+                        ssid = $props['SSID']
+                        signal_strength_percent = [int]($props['Signal'] -replace '%', '')
+                        channel = [int]$props['Channel']
+                        frequency_band = $freq_band
+                    }
+                    Write-Log "Successfully collected WiFi metrics."
+                } else {
+                    $Results.wifi_info = @{ status = "CONNECTED_INCOMPLETE_DATA" }
+                    Write-Log "WARN: WiFi is connected, but some metrics (SSID, Signal, Channel) could not be parsed."
+                }
+            } else {
+                $Results.wifi_info = @{ status = "DISCONNECTED" }
+                Write-Log "No connected WiFi interface found."
+            }
+        } catch {
+            Write-Log -Level WARN -Message "Could not retrieve WiFi info. Error: $($_.Exception.Message)"
+            $Results.wifi_info = @{ status = "ERROR_COLLECTING" }
+        }
+    }
+
     # --- HEALTH SUMMARY & SLA CALCULATION ---
     Write-Log "Calculating health summary...";
     $RttDegraded = Get-EffectiveThreshold $ProfileConfig "RTT_THRESHOLD_DEGRADED" "rtt_degraded" 100; $RttPoor = Get-EffectiveThreshold $ProfileConfig "RTT_THRESHOLD_POOR" "rtt_poor" 250
