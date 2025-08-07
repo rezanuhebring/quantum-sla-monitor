@@ -238,7 +238,12 @@ if ! echo "$payload" | jq . > /dev/null; then log_message "FATAL: Agent failed t
 # --- Submit Data to Central API ---
 log_message "Submitting data to central API: $CENTRAL_API_URL"
 curl_headers=("-H" "Content-Type: application/json"); if [ -n "$CENTRAL_API_KEY" ]; then curl_headers+=("-H" "X-API-Key: $CENTRAL_API_KEY"); fi
-api_response_file=$(mktemp); api_http_code=$(curl --silent --show-error --fail "${curl_headers[@]}" -X POST -d "$payload" "$CENTRAL_API_URL" --output "$api_response_file" --write-out "%{{http_code}}"); api_curl_exit_code=$?; api_response_body=$(cat "$api_response_file"); rm -f "$api_response_file"
+api_response_file=$(mktemp)
+# Use single quotes for --write-out to prevent shell interpretation of special characters
+api_http_code=$(curl --silent --show-error --fail "${curl_headers[@]}" -X POST -d "$payload" "$CENTRAL_API_URL" --output "$api_response_file" --write-out '%{http_code}')
+api_curl_exit_code=$?
+api_response_body=$(cat "$api_response_file")
+rm -f "$api_response_file"
 if [ "$api_curl_exit_code" -eq 0 ]; then log_message "Data successfully submitted. HTTP code: $api_http_code. Response: $api_response_body"; else log_message "ERROR: Failed to submit data to central API. Curl exit: $api_curl_exit_code, HTTP code: $api_http_code. Response: $api_response_body"; fi
 
 log_message "Agent monitor script finished."
