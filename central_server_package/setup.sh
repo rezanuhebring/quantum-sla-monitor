@@ -78,7 +78,7 @@ if [ -d "${HOST_DATA_ROOT}" ]; then
              sudo docker-compose down
         else
              # Fallback for very old setups
-             sudo docker stop "${APP_SERVICE_NAME}" "${NGINX_SERVICE_NAME}" 2>/dev/null
+                          sudo docker stop "${APP_SERVICE_NAME}" "${NGINX_SERVICE_NAME}" 2>/dev/null
              sudo docker rm "${APP_SERVICE_NAME}" "${NGINX_SERVICE_NAME}" 2>/dev/null
         fi
         print_info "Old container(s) stopped."
@@ -147,6 +147,27 @@ if [ "$ENV_TYPE" = "production" ]; then
 fi
 sudo touch "${HOST_API_LOGS_DIR}/sla_api.log"
 
+# --- API Key and Environment Config Handling ---
+SLA_ENV_FILE="${HOST_OPT_SLA_MONITOR_DIR}/sla_config.env"
+SLA_ENV_TEMPLATE="./${APP_SOURCE_SUBDIR}/sla_config.env.template"
+
+if [ ! -f "$SLA_ENV_FILE" ]; then
+    print_info "Creating new environment config from template at '$SLA_ENV_FILE'."
+    sudo cp "$SLA_ENV_TEMPLATE" "$SLA_ENV_FILE"
+fi
+
+# Check if API key is set, if not, generate and set it
+API_KEY_CURRENT_VALUE=$(grep "^CENTRAL_API_KEY=" "$SLA_ENV_FILE" | cut -d'=' -f2 | tr -d '"')
+if [ -z "$API_KEY_CURRENT_VALUE" ]; then
+    print_info "Generating and setting a new CENTRAL_API_KEY..."
+    NEW_API_KEY=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 40)
+    # Use sed to replace the empty value.
+    sudo sed -i "s|^CENTRAL_API_KEY=.*|CENTRAL_API_KEY=${NEW_API_KEY}|" "$SLA_ENV_FILE"
+    print_success "A new API Key has been generated and saved."
+else
+    print_info "CENTRAL_API_KEY is already set. Skipping generation."
+fi
+
 # Project directories for build context
 mkdir -p "${APACHE_CONFIG_DIR}"
 if [ "$ENV_TYPE" = "production" ]; then
@@ -200,6 +221,8 @@ services:
       - ${HOST_OPT_SLA_MONITOR_DIR}:/opt/sla_monitor
       - ${HOST_API_LOGS_DIR}/sla_api.log:/var/log/sla_api.log
       - ${HOST_APACHE_LOGS_DIR}:/var/log/apache2
+    env_file:
+      - ${HOST_OPT_SLA_MONITOR_DIR}/sla_config.env
     environment:
       APACHE_LOG_DIR: /var/log/apache2
 EOF_DOCKER_COMPOSE_DEV
@@ -218,6 +241,8 @@ services:
       - ${HOST_OPT_SLA_MONITOR_DIR}:/opt/sla_monitor
       - ${HOST_API_LOGS_DIR}/sla_api.log:/var/log/sla_api.log
       - ${HOST_APACHE_LOGS_DIR}:/var/log/apache2
+    env_file:
+      - ${HOST_OPT_SLA_MONITOR_DIR}/sla_config.env
     environment:
       APACHE_LOG_DIR: /var/log/apache2
     networks:
@@ -396,7 +421,15 @@ if [ $? -eq 0 ]; then
     print_success "Deployment complete!"
     sudo docker-compose ps
     echo
-    print_info "--------------------------------------------------------------------"
+    # --- NEW: Display API Key ---
+    FINAL_API_KEY=$(grep "^CENTRAL_API_KEY=" "${SLA_ENV_FILE}" | cut -d'=' -f2)
+    if [ -n "$FINAL_API_KEY" ]; then
+        print_info "--------------------------------------------------------------------"
+        print_success "Your API Key is: ${FINAL_API_KEY}"
+        print_info "Use this key in your agent configurations."
+        print_info "--------------------------------------------------------------------"
+    fi
+    # --- End of new section ---
     if [ "$ENV_TYPE" = "production" ]; then
         print_success "Dashboard available at: https://${DOMAIN_NAME}"
     else

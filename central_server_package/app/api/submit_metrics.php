@@ -8,6 +8,8 @@ ini_set('log_errors', 1);
 // --- Configuration ---
 $db_file = '/opt/sla_monitor/central_sla_data.sqlite';
 $log_file_api = '/var/log/sla_api.log';
+// Load the API key from environment variables, with a fallback for safety.
+$required_api_key = getenv('CENTRAL_API_KEY') ?: '';
 
 // --- Helper Functions ---
 function api_log($message) {
@@ -16,6 +18,16 @@ function api_log($message) {
 
 // --- Main Logic ---
 header("Content-Type: application/json");
+
+// --- API Key Authentication ---
+$provided_api_key = $_SERVER['HTTP_X_API_KEY'] ?? '';
+
+if (empty($required_api_key) || !hash_equals($required_api_key, $provided_api_key)) {
+    http_response_code(401);
+    api_log("Unauthorized: Invalid or missing API key. Provided: '{$provided_api_key}'");
+    echo json_encode(['status' => 'error', 'message' => 'Unauthorized: Invalid API Key.']);
+    exit;
+}
 
 $input_data = json_decode(file_get_contents('php://input'), true);
 
