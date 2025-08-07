@@ -102,7 +102,7 @@ try {
         foreach ($pingTarget in $PING_HOSTS) {
             try {
                 # Use PowerShell's native Test-Connection which is more robust
-                $pingResult = Test-Connection -TargetName $pingTarget -Count $PING_COUNT -ErrorAction Stop
+                $pingResult = Test-Connection -ComputerName $pingTarget -Count $PING_COUNT -ErrorAction Stop
                 $PingTargetsUp++
                 # Sum the round-trip times for averaging later
                 $TotalRttSum += ($pingResult | Measure-Object -Property ResponseTime -Average).Average
@@ -147,7 +147,7 @@ try {
         $Results.speed_test = @{ status = "SKIPPED_NO_CMD" };
         if ($SPEEDTEST_EXE_PATH -and (Test-Path $SPEEDTEST_EXE_PATH)) {
             Write-Log "Performing speedtest with '$SPEEDTEST_EXE_PATH'...";
-            try { $SpeedtestJson = & $SPEEDTEST_EXE_PATH --format=json --accept-license --accept-gdpr | ConvertFrom-Json; $Results.speed_test = @{ status = "COMPLETED"; download_mbps = [math]::Round($SpeedtestJson.download.bandwidth * 8 / 1000000, 2); upload_mbps = [math]::Round($SpeedtestJson.upload.bandwidth * 8 / 1000000, 2); ping_ms = [math]::Round($SpeedtestJson.ping.latency, 3); jitter_ms = [math]::Round($SpeedtestJson.ping.jitter, 3) } }
+            try { $SpeedtestJson = & $SPEEDTEST_EXE_PATH --format=json --accept-license | ConvertFrom-Json; $Results.speed_test = @{ status = "COMPLETED"; download_mbps = [math]::Round($SpeedtestJson.download.bandwidth * 8 / 1000000, 2); upload_mbps = [math]::Round($SpeedtestJson.upload.bandwidth * 8 / 1000000, 2); ping_ms = [math]::Round($SpeedtestJson.ping.latency, 3); jitter_ms = [math]::Round($SpeedtestJson.ping.jitter, 3) } }
             catch { Write-Log -Level WARN -Message "Speedtest command failed. Error: $($_.Exception.Message)"; $Results.speed_test = @{ status = "FAILED_EXEC" } }
         } else { Write-Log -Level WARN -Message "speedtest.exe path not configured or not found. Please re-run setup script." }
     }
