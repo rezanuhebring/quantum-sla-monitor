@@ -100,9 +100,19 @@ try {
     $detailed_health_summary = htmlspecialchars($input_data['detailed_health_summary'] ?? 'UNKNOWN', ENT_QUOTES, 'UTF-8');
     $sla_met_interval = (isset($input_data['current_sla_met_status']) && $input_data['current_sla_met_status'] === 'MET') ? 1 : 0;
     
+    // Process WiFi metrics if they exist
+    $wifi_status = get_nested_value($input_data, ['wifi_info', 'status']);
+    $wifi_ssid = get_nested_value($input_data, ['wifi_info', 'ssid']);
+    $wifi_signal = get_nested_value($input_data, ['wifi_info', 'signal_strength_percent'], 'int');
+    $wifi_freq = get_nested_value($input_data, ['wifi_info', 'frequency_band']);
+
     // Insert the new metrics into the database
-    $stmt = $db->prepare("INSERT OR IGNORE INTO sla_metrics (isp_profile_id, timestamp, overall_connectivity, avg_rtt_ms, avg_loss_percent, avg_jitter_ms, dns_status, dns_resolve_time_ms, http_status, http_response_code, http_total_time_s, speedtest_status, speedtest_download_mbps, speedtest_upload_mbps, speedtest_ping_ms, speedtest_jitter_ms, detailed_health_summary, sla_met_interval) VALUES (:isp_id, :ts, :conn, :rtt, :loss, :jitter, :dns_stat, :dns_time, :http_stat, :http_code, :http_time, :st_stat, :st_dl, :st_ul, :st_ping, :st_jit, :health, :sla_met)");
+    $stmt = $db->prepare("INSERT OR IGNORE INTO sla_metrics (isp_profile_id, timestamp, overall_connectivity, avg_rtt_ms, avg_loss_percent, avg_jitter_ms, dns_status, dns_resolve_time_ms, http_status, http_response_code, http_total_time_s, speedtest_status, speedtest_download_mbps, speedtest_upload_mbps, speedtest_ping_ms, speedtest_jitter_ms, detailed_health_summary, sla_met_interval, wifi_status, wifi_ssid, wifi_signal_strength_percent, wifi_frequency_band) VALUES (:isp_id, :ts, :conn, :rtt, :loss, :jitter, :dns_stat, :dns_time, :http_stat, :http_code, :http_time, :st_stat, :st_dl, :st_ul, :st_ping, :st_jit, :health, :sla_met, :wifi_stat, :wifi_ssid, :wifi_sig, :wifi_freq)");
     $stmt->bindValue(':isp_id', $isp_profile_id, SQLITE3_INTEGER); $stmt->bindValue(':ts', $timestamp, SQLITE3_TEXT); $stmt->bindValue(':conn', $ping_status, SQLITE3_TEXT); $stmt->bindValue(':rtt', $avg_rtt_ms, $avg_rtt_ms === null ? SQLITE3_NULL : SQLITE3_FLOAT); $stmt->bindValue(':loss', $avg_loss_percent, $avg_loss_percent === null ? SQLITE3_NULL : SQLITE3_FLOAT); $stmt->bindValue(':jitter', $avg_jitter_ms, $avg_jitter_ms === null ? SQLITE3_NULL : SQLITE3_FLOAT); $stmt->bindValue(':dns_stat', $dns_status, SQLITE3_TEXT); $stmt->bindValue(':dns_time', $dns_resolve_time_ms, $dns_resolve_time_ms === null ? SQLITE3_NULL : SQLITE3_INTEGER); $stmt->bindValue(':http_stat', $http_status, SQLITE3_TEXT); $stmt->bindValue(':http_code', $http_response_code, $http_response_code === null ? SQLITE3_NULL : SQLITE3_INTEGER); $stmt->bindValue(':http_time', $http_total_time_s, $http_total_time_s === null ? SQLITE3_NULL : SQLITE3_FLOAT); $stmt->bindValue(':st_stat', $st_status, SQLITE3_TEXT); $stmt->bindValue(':st_dl', $st_dl, $st_dl === null ? SQLITE3_NULL : SQLITE3_FLOAT); $stmt->bindValue(':st_ul', $st_ul, $st_ul === null ? SQLITE3_NULL : SQLITE3_FLOAT); $stmt->bindValue(':st_ping', $st_ping, $st_ping === null ? SQLITE3_NULL : SQLITE3_FLOAT); $stmt->bindValue(':st_jit', $st_jitter, $st_jitter === null ? SQLITE3_NULL : SQLITE3_FLOAT); $stmt->bindValue(':health', $detailed_health_summary, SQLITE3_TEXT); $stmt->bindValue(':sla_met', $sla_met_interval, SQLITE3_INTEGER);
+    $stmt->bindValue(':wifi_stat', $wifi_status, $wifi_status === null ? SQLITE3_NULL : SQLITE3_TEXT);
+    $stmt->bindValue(':wifi_ssid', $wifi_ssid, $wifi_ssid === null ? SQLITE3_NULL : SQLITE3_TEXT);
+    $stmt->bindValue(':wifi_sig', $wifi_signal, $wifi_signal === null ? SQLITE3_NULL : SQLITE3_INTEGER);
+    $stmt->bindValue(':wifi_freq', $wifi_freq, $wifi_freq === null ? SQLITE3_NULL : SQLITE3_TEXT);
     
     if ($stmt->execute()) {
         $db->exec('COMMIT');

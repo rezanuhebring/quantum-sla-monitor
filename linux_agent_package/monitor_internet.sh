@@ -129,7 +129,73 @@ if [ "$ENABLE_SPEEDTEST" = true ]; then
     else log_message "Speedtest SKIPPED: No speedtest command found."; results_map[st_status]="SKIPPED_NO_CMD"; fi
 fi
 
+# --- WIFI CLIENT METRICS ---
+if [ "$AGENT_TYPE" == "Client" ]; then
+    log_message "Client agent detected, collecting WiFi metrics..."
+    if command -v nmcli &>/dev/null; then
+        # Use nmcli to get wifi info. It's more reliable and gives structured output.
+        # We look for the active connection, then extract its details.
+        active_wifi_line=$(nmcli -t -f ACTIVE,SSID,SIGNAL,FREQ dev wifi | grep '^yes')
+        if [ -n "$active_wifi_line" ]; then
+            # Parsing the output: yes:MySsid:80:5.2 GHz
+            # Note: The separator is a colon.
+            IFS=':' read -r _ ssid signal freq <<< "$active_wifi_line"
+            results_map[wifi_status]="CONNECTED"
+            results_map[wifi_ssid]="$ssid"
+            results_map[wifi_signal]="$signal"
+            # Extract only the number from frequency (e.g., "5.2 GHz" -> "5.2")
+            results_map[wifi_freq_band]="${freq}"
+            log_message "Successfully collected WiFi metrics via nmcli."
+        else
+            results_map[wifi_status]="DISCONNECTED"
+            log_message "WiFi is not connected according to nmcli."
+        fi
+    elif command -v iwconfig &>/dev/null; then
+        # Fallback to iwconfig if nmcli is not available
+        # Find the wireless interface (e.g., wlan0, wlp2s0)
+        wifi_interface=$(iwconfig 2>/dev/null | grep -o '^[a-zA-Z0-9]\+')
+        if [ -n "$wifi_interface" ]; then
+            iwconfig_output=$(iwconfig "$wifi_interface")
+            if echo "$iwconfig_output" | grep -q "ESSID:off/any"; then
+                results_map[wifi_status]="DISCONNECTED"
+                log_message "WiFi is not connected according to iwconfig."
+            else
+                results_map[wifi_status]="CONNECTED"
+                results_map[wifi_ssid]=$(echo "$iwconfig_output" | grep -oP 'ESSID:"\K[^"')
+                # Signal level can be in dBm or a quality ratio. We prefer dBm.
+                signal_dbm=$(echo "$iwconfig_output" | grep -oP 'Signal level=\K[^ ]+')
+                if [ -n "$signal_dbm" ]; then
+                    # Convert dBm to percentage (approximate formula)
+                    # -50 dBm is ~100%, -100 dBm is ~0%.
+                    # Percentage = 2 * (dBm + 100)
+                    signal_val=$(echo "$signal_dbm" | bc)
+                    if (( $(echo "$signal_val < -100" | bc -l) )); then signal_val=-100; fi
+                    if (( $(echo "$signal_val > -50" | bc -l) )); then signal_val=-50; fi
+                    results_map[wifi_signal]=$(awk "BEGIN {printf \"%.0f\", 2 * ($signal_val + 100)}")
+                else
+                    # Fallback to quality ratio if dBm is not available
+                    signal_quality=$(echo "$iwconfig_output" | grep -oP 'Link Quality=\K[0-9]+/[0-9]+')
+                    if [ -n "$signal_quality" ]; then
+                        numerator=$(echo "$signal_quality" | cut -d'/' -f1)
+                        denominator=$(echo "$signal_quality" | cut -d'/' -f2)
+                        results_map[wifi_signal]=$(awk "BEGIN {printf \"%.0f\", ($numerator / $denominator) * 100}")
+                    fi
+                fi
+                results_map[wifi_freq_band]=$(echo "$iwconfig_output" | grep -oP 'Frequency:\K[^ ]+' | sed 's/\s*GHz//')
+                log_message "Successfully collected WiFi metrics via iwconfig."
+            fi
+        else
+            results_map[wifi_status]="NOT_APPLICABLE"
+            log_message "No WiFi interface found by iwconfig."
+        fi
+    else
+        results_map[wifi_status]="ERROR_COLLECTING"
+        log_message "WARN: Neither nmcli nor iwconfig found. Cannot collect WiFi metrics."
+    fi
+fi
+
 # --- DETAILED HEALTH SUMMARY & SLA CALCULATION ---
+
 log_message "Calculating health summary..."
 health_summary="UNKNOWN"; sla_met_interval=0; is_greater() { awk -v n1="$1" -v n2="$2" 'BEGIN {exit !(n1 > n2)}'; };
 rtt_val=${results_map[ping_rtt]:-9999}; loss_val=${results_map[ping_loss]:-100}; jitter_val=${results_map[ping_jitter]:-999}; dns_val=${results_map[dns_time]:-99999}; http_val=${results_map[http_time]:-999}; dl_val=${results_map[st_dl]:-0}; ul_val=${results_map[st_ul]:-0};
@@ -163,7 +229,8 @@ payload=$(jq -n \
     --argjson ping_summary               "$(jq -n --arg status "${results_map[ping_status]:-N/A}" --arg rtt "${results_map[ping_rtt]:-null}" --arg loss "${results_map[ping_loss]:-null}" --arg jitter "${results_map[ping_jitter]:-null}" '{status: $status, average_rtt_ms: ($rtt | tonumber? // null), average_packet_loss_percent: ($loss | tonumber? // null), average_jitter_ms: ($jitter | tonumber? // null)}')" \
     --argjson dns_resolution             "$(jq -n --arg status "${results_map[dns_status]:-N/A}" --arg time "${results_map[dns_time]:-null}" '{status: $status, resolve_time_ms: ($time | tonumber? // null)}')" \
     --argjson http_check                 "$(jq -n --arg status "${results_map[http_status]:-N/A}" --arg code "${results_map[http_code]:-null}" --arg time "${results_map[http_time]:-null}" '{status: $status, response_code: ($code | tonumber? // null), total_time_s: ($time | tonumber? // null)}')" \
-    --argjson speed_test                 "$(jq -n --arg status "${results_map[st_status]:-SKIPPED}" --arg dl "${results_map[st_dl]:-null}" --arg ul "${results_map[st_ul]:-null}" --arg ping "${results_map[st_ping]:-null}" --arg jitter "${results_map[st_jitter]:-null}" '{status: $status, download_mbps: ($dl | tonumber? // null), upload_mbps: ($ul | tonumber? // null), ping_ms: ($ping | tonumber? // null), jitter_ms: ($jitter | tonumber? // null)}')" \
+    --argjson speed_test                 "$(jq -n --arg status "${results_map[st_status]:-SKIPPED}" --arg dl "${results_map[st_dl]:-null}" --arg ul "${results_map[st_ul]:-null}" --arg ping "${results_map[st_ping]:-null}" --arg jitter "${results_map[st_jitter]:-null}" '{status: $status, download_mbps: ($dl | tonumber? // null), upload_mbps: ($ul | tonumber? // null), ping_ms: ($ping | tonumber? // null), jitter_ms: ($jitter | tonumber? // null)}")" \
+    --argjson wifi_info                  "$(jq -n --arg status "${results_map[wifi_status]:-NOT_APPLICABLE}" --arg ssid "${results_map[wifi_ssid]:-null}" --arg signal "${results_map[wifi_signal]:-null}" --arg freq "${results_map[wifi_freq_band]:-null}" '{status: $status, ssid: $ssid, signal_strength_percent: ($signal | tonumber? // null), frequency_band: $freq}')" \
     '$ARGS.named'
 )
 
