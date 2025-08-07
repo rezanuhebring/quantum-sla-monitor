@@ -72,7 +72,8 @@ fi
 # Auto-detect speedtest command.
 SPEEDTEST_COMMAND_PATH="";
 if command -v speedtest &>/dev/null; then SPEEDTEST_COMMAND_PATH=$(command -v speedtest);
-elif command -v speedtest-cli &>/dev/null; then SPEEDTEST_COMMAND_PATH=$(command -v speedtest-cli); fi
+elif command -v speedtest-cli &>/dev/null; then SPEEDTEST_COMMAND_PATH=$(command -v speedtest-cli);
+fi
 
 # --- Main Logic ---
 LOG_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -117,67 +118,66 @@ fi
 # --- SPEEDTEST ---
 if [ "$ENABLE_SPEEDTEST" = true ]; then
     if [ -n "$SPEEDTEST_COMMAND_PATH" ]; then
-        log_message "Performing speedtest with '$SPEEDTEST_COMMAND_PATH' and args '$SPEEDTEST_ARGS'..."; speedtest_interface_arg=""; if [ -n "$NETWORK_INTERFACE_TO_MONITOR" ]; then _source_ip_agent=$(ip -4 addr show "$NETWORK_INTERFACE_TO_MONITOR" | grep -oP 'inet \K[\d.]+'); if [ -n "$_source_ip_agent" ]; then if [[ "$SPEEDTEST_ARGS" == *"--source"* ]]; then speedtest_interface_arg="--source $_source_ip_agent"; elif [[ "$SPEEDTEST_ARGS" == *"--interface"* ]]; then speedtest_interface_arg="--interface $NETWORK_INTERFACE_TO_MONITOR"; fi; fi; fi;
-        speedtest_json_output=$(timeout 120s $SPEEDTEST_COMMAND_PATH $SPEEDTEST_ARGS $speedtest_interface_arg);
+        # Clean up arguments based on which speedtest version is being used.
+        local_speedtest_args="$SPEEDTEST_ARGS"
+        if [[ "$SPEEDTEST_COMMAND_PATH" == *"speedtest-cli"* ]]; then
+            log_message "Community speedtest-cli detected. Sanitizing arguments."
+            local_speedtest_args=$(echo "$local_speedtest_args" | sed 's/--accept-license//g' | sed 's/--accept-gdpr//g')
+        fi
+        log_message "Performing speedtest with '$SPEEDTEST_COMMAND_PATH' and args '$local_speedtest_args'...";
+        speedtest_interface_arg=""; if [ -n "$NETWORK_INTERFACE_TO_MONITOR" ]; then _source_ip_agent=$(ip -4 addr show "$NETWORK_INTERFACE_TO_MONITOR" | grep -oP 'inet \K[\d.]+'); if [ -n "$_source_ip_agent" ]; then if [[ "$local_speedtest_args" == *"--source"* ]]; then speedtest_interface_arg="--source $_source_ip_agent"; elif [[ "$local_speedtest_args" == *"--interface"* ]]; then speedtest_interface_arg="--interface $NETWORK_INTERFACE_TO_MONITOR"; fi; fi; fi;
+        
+        speedtest_json_output=$(timeout 120s $SPEEDTEST_COMMAND_PATH $local_speedtest_args $speedtest_interface_arg 2>&1);
+        
         if [ $? -eq 0 ] && echo "$speedtest_json_output" | jq -e . > /dev/null 2>&1; then
             if echo "$speedtest_json_output" | jq -e '.download.bandwidth' > /dev/null 2>&1; then
                 log_message "Parsing speedtest output as Ookla JSON format."; dl_bytes_per_sec=$(echo "$speedtest_json_output" | jq -r '.download.bandwidth // 0'); ul_bytes_per_sec=$(echo "$speedtest_json_output" | jq -r '.upload.bandwidth // 0'); results_map[st_dl]=$(awk "BEGIN {printf \"%.2f\", $dl_bytes_per_sec * 8 / 1000000}"); results_map[st_ul]=$(awk "BEGIN {printf \"%.2f\", $ul_bytes_per_sec * 8 / 1000000}"); results_map[st_ping]=$(echo "$speedtest_json_output" | jq -r '.ping.latency // "null"'); results_map[st_jitter]=$(echo "$speedtest_json_output" | jq -r '.ping.jitter // "null"'); results_map[st_status]="COMPLETED";
             elif echo "$speedtest_json_output" | jq -e '.download' > /dev/null 2>&1; then
                 log_message "Parsing speedtest output as community speedtest-cli JSON format."; st_dl_bps=$(echo "$speedtest_json_output" | jq -r '.download // 0'); st_ul_bps=$(echo "$speedtest_json_output" | jq -r '.upload // 0'); results_map[st_dl]=$(awk "BEGIN {printf \"%.2f\", $st_dl_bps / 1000000}"); results_map[st_ul]=$(awk "BEGIN {printf \"%.2f\", $st_ul_bps / 1000000}"); results_map[st_ping]=$(echo "$speedtest_json_output" | jq -r '.ping // "null"'); results_map[st_jitter]="null"; results_map[st_status]="COMPLETED";
             else log_message "Speedtest FAILED: JSON format not recognized."; results_map[st_status]="FAILED_PARSE"; fi
-        else log_message "Speedtest FAILED: Command failed or produced non-JSON output."; results_map[st_status]="FAILED_EXEC"; fi
+        else log_message "Speedtest FAILED: Command failed or produced non-JSON output. Output: $speedtest_json_output"; results_map[st_status]="FAILED_EXEC"; fi
     else log_message "Speedtest SKIPPED: No speedtest command found."; results_map[st_status]="SKIPPED_NO_CMD"; fi
 fi
 
 # --- WIFI CLIENT METRICS ---
 if [ "$AGENT_TYPE" == "Client" ]; then
     log_message "Client agent detected, collecting WiFi metrics..."
-    if command -v nmcli &>/dev/null; then
-        # Use nmcli to get wifi info. It's more reliable and gives structured output.
-        # We look for the active connection, then extract its details.
+    wifi_collected=false
+    # Try nmcli first, but only if NetworkManager is actually running
+    if command -v nmcli &>/dev/null && nmcli general status &>/dev/null; then
         active_wifi_line=$(nmcli -t -f ACTIVE,SSID,SIGNAL,FREQ dev wifi | grep '^yes')
         if [ -n "$active_wifi_line" ]; then
-            # Parsing the output: yes:MySsid:80:5.2 GHz
-            # Note: The separator is a colon.
             IFS=':' read -r _ ssid signal freq <<< "$active_wifi_line"
-            results_map[wifi_status]="CONNECTED"
-            results_map[wifi_ssid]="$ssid"
-            results_map[wifi_signal]="$signal"
-            # Extract only the number from frequency (e.g., "5.2 GHz" -> "5.2")
-            results_map[wifi_freq_band]="${freq}"
-            log_message "Successfully collected WiFi metrics via nmcli."
+            results_map[wifi_status]="CONNECTED"; results_map[wifi_ssid]="$ssid"; results_map[wifi_signal]="$signal"; results_map[wifi_freq_band]="${freq}";
+            log_message "Successfully collected WiFi metrics via nmcli."; wifi_collected=true
         else
-            results_map[wifi_status]="DISCONNECTED"
             log_message "WiFi is not connected according to nmcli."
         fi
-    elif command -v iwconfig &>/dev/null; then
-        # Fallback to iwconfig if nmcli is not available
-        # Find the wireless interface (e.g., wlan0, wlp2s0)
-        wifi_interface=$(iwconfig 2>/dev/null | grep -o '^[a-zA-Z0-9]\+')
+    elif ! command -v nmcli &>/dev/null;
+    then
+        log_message "nmcli not found, will try iwconfig."
+    else
+        log_message "NetworkManager is not running. Skipping nmcli, will try iwconfig."
+    fi
+
+    # Fallback to iwconfig if nmcli didn't work
+    if [ "$wifi_collected" = false ] && command -v iwconfig &>/dev/null; then
+        wifi_interface=$(iwconfig 2>/dev/null | grep -o '^[a-zA-Z0-9]+' | head -n 1)
         if [ -n "$wifi_interface" ]; then
             iwconfig_output=$(iwconfig "$wifi_interface")
             if echo "$iwconfig_output" | grep -q "ESSID:off/any"; then
-                results_map[wifi_status]="DISCONNECTED"
-                log_message "WiFi is not connected according to iwconfig."
+                results_map[wifi_status]="DISCONNECTED"; log_message "WiFi is not connected according to iwconfig."
             else
                 results_map[wifi_status]="CONNECTED"
                 results_map[wifi_ssid]=$(echo "$iwconfig_output" | grep -oP 'ESSID:"\K[^"')
-                # Signal level can be in dBm or a quality ratio. We prefer dBm.
                 signal_dbm=$(echo "$iwconfig_output" | grep -oP 'Signal level=\K[^ ]+')
                 if [ -n "$signal_dbm" ]; then
-                    # Convert dBm to percentage (approximate formula)
-                    # -50 dBm is ~100%, -100 dBm is ~0%.
-                    # Percentage = 2 * (dBm + 100)
-                    signal_val=$(echo "$signal_dbm" | bc)
-                    if (( $(echo "$signal_val < -100" | bc -l) )); then signal_val=-100; fi
-                    if (( $(echo "$signal_val > -50" | bc -l) )); then signal_val=-50; fi
+                    signal_val=$(echo "$signal_dbm" | bc); if (( $(echo "$signal_val < -100" | bc -l) )); then signal_val=-100; fi; if (( $(echo "$signal_val > -50" | bc -l) )); then signal_val=-50; fi
                     results_map[wifi_signal]=$(awk "BEGIN {printf \"%.0f\", 2 * ($signal_val + 100)}")
                 else
-                    # Fallback to quality ratio if dBm is not available
                     signal_quality=$(echo "$iwconfig_output" | grep -oP 'Link Quality=\K[0-9]+/[0-9]+')
                     if [ -n "$signal_quality" ]; then
-                        numerator=$(echo "$signal_quality" | cut -d'/' -f1)
-                        denominator=$(echo "$signal_quality" | cut -d'/' -f2)
+                        numerator=$(echo "$signal_quality" | cut -d'/' -f1); denominator=$(echo "$signal_quality" | cut -d'/' -f2)
                         results_map[wifi_signal]=$(awk "BEGIN {printf \"%.0f\", ($numerator / $denominator) * 100}")
                     fi
                 fi
@@ -185,12 +185,11 @@ if [ "$AGENT_TYPE" == "Client" ]; then
                 log_message "Successfully collected WiFi metrics via iwconfig."
             fi
         else
-            results_map[wifi_status]="NOT_APPLICABLE"
-            log_message "No WiFi interface found by iwconfig."
+            results_map[wifi_status]="NOT_APPLICABLE"; log_message "No WiFi interface found by iwconfig."
         fi
-    else
+    elif [ "$wifi_collected" = false ]; then
         results_map[wifi_status]="ERROR_COLLECTING"
-        log_message "WARN: Neither nmcli nor iwconfig found. Cannot collect WiFi metrics."
+        log_message "WARN: Neither nmcli nor iwconfig could provide WiFi metrics."
     fi
 fi
 
@@ -229,7 +228,7 @@ payload=$(jq -n \
     --argjson ping_summary               "$(jq -n --arg status "${results_map[ping_status]:-N/A}" --arg rtt "${results_map[ping_rtt]:-null}" --arg loss "${results_map[ping_loss]:-null}" --arg jitter "${results_map[ping_jitter]:-null}" '{status: $status, average_rtt_ms: ($rtt | tonumber? // null), average_packet_loss_percent: ($loss | tonumber? // null), average_jitter_ms: ($jitter | tonumber? // null)}')" \
     --argjson dns_resolution             "$(jq -n --arg status "${results_map[dns_status]:-N/A}" --arg time "${results_map[dns_time]:-null}" '{status: $status, resolve_time_ms: ($time | tonumber? // null)}')" \
     --argjson http_check                 "$(jq -n --arg status "${results_map[http_status]:-N/A}" --arg code "${results_map[http_code]:-null}" --arg time "${results_map[http_time]:-null}" '{status: $status, response_code: ($code | tonumber? // null), total_time_s: ($time | tonumber? // null)}')" \
-    --argjson speed_test                 "$(jq -n --arg status "${results_map[st_status]:-SKIPPED}" --arg dl "${results_map[st_dl]:-null}" --arg ul "${results_map[st_ul]:-null}" --arg ping "${results_map[st_ping]:-null}" --arg jitter "${results_map[st_jitter]:-null}" '{status: $status, download_mbps: ($dl | tonumber? // null), upload_mbps: ($ul | tonumber? // null), ping_ms: ($ping | tonumber? // null), jitter_ms: ($jitter | tonumber? // null)}")" \
+    --argjson speed_test                 "$(jq -n --arg status "${results_map[st_status]:-SKIPPED}" --arg dl "${results_map[st_dl]:-null}" --arg ul "${results_map[st_ul]:-null}" --arg ping "${results_map[st_ping]:-null}" --arg jitter "${results_map[st_jitter]:-null}" '{status: $status, download_mbps: ($dl | tonumber? // null), upload_mbps: ($ul | tonumber? // null), ping_ms: ($ping | tonumber? // null), jitter_ms: ($jitter | tonumber? // null)}')" \
     --argjson wifi_info                  "$(jq -n --arg status "${results_map[wifi_status]:-NOT_APPLICABLE}" --arg ssid "${results_map[wifi_ssid]:-null}" --arg signal "${results_map[wifi_signal]:-null}" --arg freq "${results_map[wifi_freq_band]:-null}" '{status: $status, ssid: $ssid, signal_strength_percent: ($signal | tonumber? // null), frequency_band: $freq}')" \
     '$ARGS.named'
 )
@@ -239,7 +238,7 @@ if ! echo "$payload" | jq . > /dev/null; then log_message "FATAL: Agent failed t
 # --- Submit Data to Central API ---
 log_message "Submitting data to central API: $CENTRAL_API_URL"
 curl_headers=("-H" "Content-Type: application/json"); if [ -n "$CENTRAL_API_KEY" ]; then curl_headers+=("-H" "X-API-Key: $CENTRAL_API_KEY"); fi
-api_response_file=$(mktemp); api_http_code=$(curl --silent --show-error --fail "${curl_headers[@]}" -X POST -d "$payload" "$CENTRAL_API_URL" --output "$api_response_file" --write-out "%{http_code}"); api_curl_exit_code=$?; api_response_body=$(cat "$api_response_file"); rm -f "$api_response_file"
+api_response_file=$(mktemp); api_http_code=$(curl --silent --show-error --fail "${curl_headers[@]}" -X POST -d "$payload" "$CENTRAL_API_URL" --output "$api_response_file" --write-out "%{{http_code}}"); api_curl_exit_code=$?; api_response_body=$(cat "$api_response_file"); rm -f "$api_response_file"
 if [ "$api_curl_exit_code" -eq 0 ]; then log_message "Data successfully submitted. HTTP code: $api_http_code. Response: $api_response_body"; else log_message "ERROR: Failed to submit data to central API. Curl exit: $api_curl_exit_code, HTTP code: $api_http_code. Response: $api_response_body"; fi
 
 log_message "Agent monitor script finished."
