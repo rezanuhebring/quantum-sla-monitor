@@ -3,6 +3,13 @@
 // Enhanced to provide a summary of all agent statuses and detailed data in one call.
 // System-wide SLA is now calculated for ISP-only agents.
 
+session_start();
+if (!isset($_SESSION['user_id'])) {
+    http_response_code(401);
+    echo json_encode(['error' => 'Unauthorized']);
+    exit;
+}
+
 ini_set('display_errors', 0); // Never display errors on a JSON endpoint
 ini_set('log_errors', 1);
 
