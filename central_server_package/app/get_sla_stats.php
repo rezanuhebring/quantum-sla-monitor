@@ -29,7 +29,7 @@ header('Cache-Control: no-cache, must-revalidate, no-store, max-age=0');
 $response_data = [
     'isp_profiles' => [], 'all_agent_status' => [], 'current_isp_profile_id' => null, 'current_isp_name' => 'N/A', 'target_sla_percentage' => 99.5, 'periods' => [],
     'rtt_chart_data' => [], 'speed_chart_data' => [], 'cumulative_ping_chart_data' => [], 'cumulative_speed_chart_data' => [], 'latest_check' => null, 
-    'dashboard_refresh_interval_ms' => 60000, 'agent_stale_minutes' => ($EXPECTED_INTERVAL_MINUTES + 5)
+    'dashboard_refresh_interval_ms' => 60000, 'agent_stale_minutes' => ($EXPECTED_INTERVAL_MINUTES + 5), 'central_api_key' => 'Not Disclosed'
 ];
 
 try {
@@ -37,6 +37,7 @@ try {
     $response_data['dashboard_refresh_interval_ms'] = (int)($config_values['DASHBOARD_REFRESH_INTERVAL_MS'] ?? 60000);
     $response_data['target_sla_percentage'] = (float)($config_values['SLA_TARGET_PERCENTAGE'] ?? 99.5);
     $response_data['agent_stale_minutes'] = (int)($config_values['AGENT_STALE_MINUTES'] ?? ($EXPECTED_INTERVAL_MINUTES + 5));
+    $response_data['central_api_key'] = getenv('CENTRAL_API_KEY') ?: 'Not Set';
 
     if (!file_exists($db_file)) { throw new Exception("Central database file not found."); }
     $db = new SQLite3($db_file, SQLITE3_OPEN_READONLY);

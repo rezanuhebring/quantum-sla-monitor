@@ -84,7 +84,9 @@ try {
     $ProfileConfig = @{}
     try {
         Write-Log -Message "Fetching profile from: $CentralProfileConfigUrl"
-        $WebRequest = Invoke-WebRequest -Uri $CentralProfileConfigUrl -Method Get -TimeoutSec 10 -UseBasicParsing
+        $ApiHeaders = @{}; if ($CENTRAL_API_KEY) { $ApiHeaders."X-API-Key" = $CENTRAL_API_KEY }
+        Write-Log -Message "DEBUG: Fetching profile with API Key: '$($CENTRAL_API_KEY)'" # DEBUG LINE
+        $WebRequest = Invoke-WebRequest -Uri $CentralProfileConfigUrl -Method Get -TimeoutSec 10 -UseBasicParsing -Headers $ApiHeaders
         if ($WebRequest.StatusCode -eq 200) { $ProfileConfig = $WebRequest.Content | ConvertFrom-Json; Write-Log -Message "Successfully fetched profile config." }
     } catch { Write-Log -Level WARN -Message "Could not fetch profile config, will use local settings. Error: $($_.Exception.Message)" }
 
@@ -147,7 +149,7 @@ try {
         $Results.speed_test = @{ status = "SKIPPED_NO_CMD" };
         if ($SPEEDTEST_EXE_PATH -and (Test-Path $SPEEDTEST_EXE_PATH)) {
             Write-Log "Performing speedtest with '$SPEEDTEST_EXE_PATH'...";
-            try { $SpeedtestJson = & $SPEEDTEST_EXE_PATH --format=json --accept-license | ConvertFrom-Json; $Results.speed_test = @{ status = "COMPLETED"; download_mbps = [math]::Round($SpeedtestJson.download.bandwidth * 8 / 1000000, 2); upload_mbps = [math]::Round($SpeedtestJson.upload.bandwidth * 8 / 1000000, 2); ping_ms = [math]::Round($SpeedtestJson.ping.latency, 3); jitter_ms = [math]::Round($SpeedtestJson.ping.jitter, 3) } }
+            try { $SpeedtestJson = & $SPEEDTEST_EXE_PATH --format=json --accept-license --accept-gdpr | ConvertFrom-Json; $Results.speed_test = @{ status = "COMPLETED"; download_mbps = [math]::Round($SpeedtestJson.download.bandwidth * 8 / 1000000, 2); upload_mbps = [math]::Round($SpeedtestJson.upload.bandwidth * 8 / 1000000, 2); ping_ms = [math]::Round($SpeedtestJson.ping.latency, 3); jitter_ms = [math]::Round($SpeedtestJson.ping.jitter, 3) } }
             catch { Write-Log -Level WARN -Message "Speedtest command failed. Error: $($_.Exception.Message)"; $Results.speed_test = @{ status = "FAILED_EXEC" } }
         } else { Write-Log -Level WARN -Message "speedtest.exe path not configured or not found. Please re-run setup script." }
     }
@@ -184,6 +186,7 @@ try {
     Write-Log -Message "Submitting data to central API...";
     try {
         $SubmitHeaders = @{"Content-Type" = "application/json"}; if ($CENTRAL_API_KEY) { $SubmitHeaders."X-API-Key" = $CENTRAL_API_KEY }
+        Write-Log -Message "DEBUG: Submitting data with API Key: '$($CENTRAL_API_KEY)'" # DEBUG LINE
         Invoke-RestMethod -Uri $CENTRAL_API_URL -Method Post -Body $JsonPayload -Headers $SubmitHeaders -TimeoutSec 60; Write-Log -Message "Data successfully submitted."
     } catch { $ErrorMessage = "Failed to submit data. Error: $($_.Exception.Message)"; if ($_.Exception.Response) { $ErrorMessage += " | HTTP Status: $($_.Exception.Response.StatusCode.value__)" }; Write-Log -Level ERROR -Message $ErrorMessage }
     

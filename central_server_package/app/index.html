@@ -70,7 +70,8 @@
                     <div class="card key-metric-card"><div id="metric-agents-issue" class="key-metric-value">0</div><div class="key-metric-label">Agents with Issues</div></div>
                     <div class="card key-metric-card"><div id="metric-system-rtt" class="key-metric-value">0</div><div class="key-metric-label">Avg. System RTT (ms)</div></div>
                 </div>
-                <div class="grid-container"><div class="card"><h3>System-Wide ISP SLA</h3><div id="overall-sla-periods"></div><div class="download-button-container"><a id="summary-csv-download" href="generate_csv.php" download="all_agents_summary.csv" class="download-button">💾 Download All Agent Status</a></div></div></div>
+                <div class="grid-container"><div class="card"><h3>System-Wide ISP SLA</h3><div id="overall-sla-periods"></div><div class="download-button-container"><a id="summary-csv-download" href="generate_csv.php" download="all_agents_summary.csv" class="download-button">💾 Download All Agent Status</a></div></div>
+                <div class="card"><h3>System Info</h3><p><span>API Key:</span><strong id="api-key-display"></strong></p></div></div>
                 <div class="agent-lists-container" style="margin-top: 20px;"><div class="card"><h3>Active ISP Agents</h3><ul id="isp-agent-list" class="agent-list"></ul></div><div class="card"><h3>Active Client Agents</h3><ul id="client-agent-list" class="agent-list"></ul></div></div>
                 <div class="chart-card card" style="margin-top:20px;"><h3>System-Wide Daily Averages (<span class="period-label"></span>)</h3><div class="chart-container"><canvas id="cumulativeRttChart"></canvas></div><div class="chart-container" style="margin-top:20px;"><canvas id="cumulativeSpeedChart"></canvas></div></div>
             </div>
@@ -208,6 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setText('metric-total-agents', data.isp_profiles.length);
         setHtml('metric-agents-issue', `<span class="${issueCount > 0 ? 'down' : ''}">${issueCount}</span>`);
         setText('metric-system-rtt', rttCount > 0 ? (totalRtt/rttCount).toFixed(1) : 'N/A');
+        setText('api-key-display', data.central_api_key);
 
         renderChart('cumulativeRttChart', { 'Avg RTT (ms)': 'avg_rtt', 'Avg Loss (%)': 'avg_loss', 'Avg Jitter (ms)': 'avg_jitter' }, data.cumulative_ping_chart_data, 'day');
         renderChart('cumulativeSpeedChart', { 'Avg Download (Mbps)': 'avg_dl', 'Avg Upload (Mbps)': 'avg_ul' }, data.cumulative_speed_chart_data, 'day');
@@ -239,10 +241,9 @@ document.addEventListener('DOMContentLoaded', () => {
         summaryView.classList.add('hidden'); detailView.classList.remove('hidden');
     };
     
-    // UPDATED: More robust chart rendering function
+    // UPDATED: More robust chart rendering function that updates instead of destroying
     const renderChart = (canvasId, seriesConfig, data, xKey) => {
         const ctx = document.getElementById(canvasId)?.getContext('2d'); if (!ctx) return;
-        if (chartInstances[canvasId]) chartInstances[canvasId].destroy();
 
         const isDark = document.body.classList.contains('dark-mode');
         const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
@@ -295,7 +296,15 @@ document.addEventListener('DOMContentLoaded', () => {
              }
         }
 
-        chartInstances[canvasId] = new Chart(ctx, { type: 'line', data: { labels: data.map(d => d[xKey]), datasets }, options: chartOptions });
+        if (chartInstances[canvasId]) {
+            const chart = chartInstances[canvasId];
+            chart.data.labels = data.map(d => d[xKey]);
+            chart.data.datasets = datasets;
+            chart.options = chartOptions;
+            chart.update();
+        } else {
+            chartInstances[canvasId] = new Chart(ctx, { type: 'line', data: { labels: data.map(d => d[xKey]), datasets }, options: chartOptions });
+        }
     };
     
     const applyTheme = (isDark) => { document.body.classList.toggle('dark-mode', isDark); fetchAndUpdateDashboard(profileSelector.value, currentPeriodDays); };
